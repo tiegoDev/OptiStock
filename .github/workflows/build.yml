@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,8 +24,11 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Build Debug APK & Release AAB
-        run: gradle assembleDebug bundleRelease
+      - name: Build Debug APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Build Release AAB
+        run: gradle bundleRelease --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
