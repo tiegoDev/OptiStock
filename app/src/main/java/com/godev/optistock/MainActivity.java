@@ -10,10 +10,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.pdf.PdfDocument;
@@ -38,7 +36,6 @@ import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -99,7 +96,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean isDarkMode = true;
     private boolean usePrices = false;
-    private String langPref = "SYS"; // SYS, FR, EN, ES
+    private String langPref = "SYS";
     private String searchQuery = "";
     private double lastExitTotal = 0.0;
     private double sessionExitTotal = 0.0;
@@ -131,9 +128,6 @@ public class MainActivity extends AppCompatActivity {
         showSplashScreen();
     }
 
-    // =========================================================================
-    // 1. ÉCRAN DE DÉMARRAGE (IMAGE + LASER CODE-BARRES + "Développé par GoDev")
-    // =========================================================================
     private void showSplashScreen() {
         LinearLayout splashRoot = new LinearLayout(this);
         splashRoot.setOrientation(LinearLayout.VERTICAL);
@@ -141,10 +135,8 @@ public class MainActivity extends AppCompatActivity {
         splashRoot.setBackgroundColor(Color.parseColor("#040B1C"));
         splashRoot.setPadding(dp(24), dp(36), dp(24), dp(24));
 
-        // Espace flexible haut
         splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.5f));
 
-        // Image principale OptiStock
         ImageView logoView = new ImageView(this);
         logoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
         int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
@@ -164,16 +156,13 @@ public class MainActivity extends AppCompatActivity {
         logoLp.gravity = Gravity.CENTER;
         splashRoot.addView(logoView, logoLp);
 
-        // Barre de chargement Laser qui fait apparaître un code-barres
         BarcodeLaserView laserView = new BarcodeLaserView(this);
         LinearLayout.LayoutParams laserLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(90));
         laserLp.setMargins(dp(16), dp(28), dp(16), dp(16));
         splashRoot.addView(laserView, laserLp);
 
-        // Espace flexible bas
         splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
 
-        // Texte "Développé par GoDev"
         TextView footerTv = new TextView(this);
         footerTv.setText("Développé par GoDev");
         footerTv.setTextColor(Color.parseColor("#60A5FA"));
@@ -184,7 +173,6 @@ public class MainActivity extends AppCompatActivity {
 
         setContentView(splashRoot);
 
-        // Animation de 3.5 secondes
         ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
         anim.setDuration(3500);
         anim.setInterpolator(new LinearInterpolator());
@@ -200,7 +188,6 @@ public class MainActivity extends AppCompatActivity {
         }, 3650);
     }
 
-    // Vue personnalisée : le laser rouge avance et révèle le code-barres
     private class BarcodeLaserView extends View {
         private float progress = 0f;
         private final Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -220,17 +207,13 @@ public class MainActivity extends AppCompatActivity {
             super(context);
             barPaint.setColor(Color.WHITE);
             bgBarPaint.setColor(Color.parseColor("#1E293B"));
-
             laserPaint.setColor(Color.parseColor("#FF1E1E"));
             laserPaint.setStrokeWidth(dp(3));
-
             glowPaint.setColor(Color.parseColor("#66FF0000"));
             glowPaint.setStrokeWidth(dp(12));
-
             framePaint.setColor(Color.parseColor("#0EA5E9"));
             framePaint.setStyle(Paint.Style.STROKE);
             framePaint.setStrokeWidth(dp(2));
-
             textPaint.setColor(Color.parseColor("#94A3B8"));
             textPaint.setTextSize(dp(12));
             textPaint.setTextAlign(Paint.Align.CENTER);
@@ -251,7 +234,6 @@ public class MainActivity extends AppCompatActivity {
             int padY = dp(10);
             int barBottom = h - dp(24);
 
-            // Cadre futuriste bleu autour du code-barres
             RectF rect = new RectF(padX - dp(8), padY - dp(4), w - padX + dp(8), barBottom + dp(6));
             canvas.drawRoundRect(rect, dp(10), dp(10), framePaint);
 
@@ -266,10 +248,7 @@ public class MainActivity extends AppCompatActivity {
             for (int i = 0; i < barPattern.length; i++) {
                 float bw = barPattern[i] * unitW;
                 if (i % 2 == 0) {
-                    // Ombre discrète du code-barres non scanné
                     canvas.drawRect(curX, padY + dp(4), curX + bw, barBottom - dp(2), bgBarPaint);
-
-                    // Partie révélée par le laser
                     if (curX < laserX) {
                         float right = Math.min(curX + bw, laserX);
                         canvas.drawRect(curX, padY + dp(4), right, barBottom - dp(2), barPaint);
@@ -278,25 +257,19 @@ public class MainActivity extends AppCompatActivity {
                 curX += bw;
             }
 
-            // Faisceau laser vertical + halo lumineux rouge
             canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), glowPaint);
             canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), laserPaint);
 
-            // Point central brillant du laser
             Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
             dotPaint.setColor(Color.WHITE);
             canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(4), glowPaint);
             canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(2), dotPaint);
 
-            // Pourcentage de scan en dessous
             int pct = (int) (progress * 100);
             canvas.drawText("SCANNING... " + pct + "%", w / 2f, h - dp(4), textPaint);
         }
     }
 
-    // =========================================================================
-    // 2. SYSTÈME DE LANGUES (LANGUE DU TÉLÉPHONE / FR / EN / ES)
-    // =========================================================================
     private String getEffectiveLang() {
         if (!langPref.equals("SYS")) return langPref;
         String sys = Locale.getDefault().getLanguage().toLowerCase();
@@ -355,15 +328,11 @@ public class MainActivity extends AppCompatActivity {
         return dict.containsKey(key) ? dict.get(key)[idx] : key;
     }
 
-    // =========================================================================
-    // 3. INTERFACE PRINCIPALE (MULTI-STOCKS, CATÉGORIES, OPTIONS, PRIX)
-    // =========================================================================
     private void buildMainUI() {
         rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setPadding(dp(14), dp(14), dp(14), dp(10));
 
-        // --- LIGNE 1 : TITRE + BOUTON PDF + BOUTON OPTIONS ---
         headerLayout = new LinearLayout(this);
         headerLayout.setOrientation(LinearLayout.HORIZONTAL);
         headerLayout.setGravity(Gravity.CENTER_VERTICAL);
@@ -394,7 +363,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(headerLayout);
 
-        // --- LIGNE 2 : BOUTON DÉDIÉ CHOIX DU STOCK (MENU DÉROULANT) + FILTRE CATÉGORIE ---
         subHeaderLayout = new LinearLayout(this);
         subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -421,7 +389,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(subHeaderLayout, subLp);
 
-        // --- CARTE STATISTIQUES ---
         statsCard = new LinearLayout(this);
         statsCard.setOrientation(LinearLayout.HORIZONTAL);
         statsCard.setGravity(Gravity.CENTER_VERTICAL);
@@ -442,7 +409,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(statsCard, statsParams);
 
-        // --- BOUTONS D'ACTION : + ENTRÉE (VERT) / - SORTIE (ROUGE) ---
         LinearLayout actionsLayout = new LinearLayout(this);
         actionsLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -472,7 +438,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(actionsLayout, actParams);
 
-        // --- BARRE DE RECHERCHE ---
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
         searchInput.setPadding(dp(14), dp(10), dp(14), dp(10));
@@ -488,7 +453,6 @@ public class MainActivity extends AppCompatActivity {
         searchParams.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(searchInput, searchParams);
 
-        // --- LISTE DE L'INVENTAIRE ---
         emptyText = new TextView(this);
         emptyText.setGravity(Gravity.CENTER);
         emptyText.setTextSize(15);
@@ -502,7 +466,6 @@ public class MainActivity extends AppCompatActivity {
         listView.setAdapter(adapter);
         rootLayout.addView(listView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // --- BANDEAU BAS : TOTAL DES PRIX LORS DES SORTIES ---
         exitTotalBanner = new LinearLayout(this);
         exitTotalBanner.setOrientation(LinearLayout.HORIZONTAL);
         exitTotalBanner.setGravity(Gravity.CENTER_VERTICAL);
@@ -532,9 +495,6 @@ public class MainActivity extends AppCompatActivity {
         setContentView(rootLayout);
     }
 
-    // =========================================================================
-    // 4. MENU DÉROULANT DES STOCKS & FILTRE DES CATÉGORIES
-    // =========================================================================
     private void showStockPopupMenu(View anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
         for (int i = 0; i < stocksList.size(); i++) {
@@ -609,652 +569,11 @@ public class MainActivity extends AppCompatActivity {
         popup.show();
     }
 
-    // =========================================================================
-    // 5. MENU OPTIONS (LANGUE, MODE SOMBRE, PRIX, IMAGE DE DÉMARRAGE)
-    // =========================================================================
-    private void showOptionsDialog() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(16), dp(20), dp
-
-
-cd ~/OptiStock
-mkdir -p app/src/main/res/drawable
-
-# 1. Récupération automatique de ton image de démarrage si présente dans Download
-if [ -f "/sdcard/Download/1000018415.png" ]; then
-    cp "/sdcard/Download/1000018415.png" app/src/main/res/drawable/splash_logo.png
-    echo "✅ Image 1000018415.png copiée dans res/drawable/splash_logo.png"
-elif [ -f "/sdcard/Pictures/1000018415.png" ]; then
-    cp "/sdcard/Pictures/1000018415.png" app/src/main/res/drawable/splash_logo.png
-    echo "✅ Image 1000018415.png copiée depuis Pictures"
-elif [ -f "/sdcard/Download/splash.png" ]; then
-    cp "/sdcard/Download/splash.png" app/src/main/res/drawable/splash_logo.png
-    echo "✅ Image splash.png copiée"
-fi
-
-# 2. Mise à jour complète de MainActivity.java (v2.0)
-cat << 'EOF' > app/src/main/java/com/godev/optistock/MainActivity.java
-package com.godev.optistock;
-
-import android.animation.ValueAnimator;
-import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.Context;
-import android.content.Intent;
-import android.content.SharedPreferences;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.LinearGradient;
-import android.graphics.Paint;
-import android.graphics.RectF;
-import android.graphics.Shader;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
-import android.graphics.pdf.PdfDocument;
-import android.net.Uri;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
-import android.provider.MediaStore;
-import android.text.Editable;
-import android.text.InputType;
-import android.text.TextWatcher;
-import android.util.Base64;
-import android.util.TypedValue;
-import android.view.Gravity;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.animation.LinearInterpolator;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
-import android.widget.BaseAdapter;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.ListView;
-import android.widget.PopupMenu;
-import android.widget.ScrollView;
-import android.widget.Spinner;
-import android.widget.Switch;
-import android.widget.TextView;
-import android.widget.Toast;
-
-import androidx.appcompat.app.AppCompatActivity;
-
-import com.google.mlkit.vision.barcode.common.Barcode;
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
-public class MainActivity extends AppCompatActivity {
-
-    static class Product {
-        String barcode;
-        String name;
-        int quantity;
-        String imageBase64;
-        String stockName;
-        String category;
-        double price;
-    }
-
-    private List<Product> inventory = new ArrayList<>();
-    private List<Product> filteredInventory = new ArrayList<>();
-    private List<String> stocksList = new ArrayList<>();
-    private List<String> categoriesList = new ArrayList<>();
-
-    private String currentStock = "";
-    private String selectedCategoryFilter = "ALL";
-
-    private InventoryAdapter adapter;
-    private SharedPreferences prefs;
-
-    private boolean isDarkMode = true;
-    private boolean usePrices = false;
-    private String langPref = "SYS"; // SYS, FR, EN, ES
-    private String searchQuery = "";
-    private double lastExitTotal = 0.0;
-    private double sessionExitTotal = 0.0;
-
-    private static final int REQ_CREATE_PDF = 1001;
-    private static final int REQ_TAKE_PHOTO = 1002;
-    private static final int REQ_PICK_SPLASH = 1003;
-    private ImageView currentPhotoPreview;
-    private String tempPhotoBase64 = "";
-
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
-
-    private LinearLayout rootLayout, headerLayout, subHeaderLayout, statsCard, exitTotalBanner;
-    private TextView titleText, statsRefsText, statsUnitsText, emptyText, exitTotalText;
-    private EditText searchInput;
-    private Button btnEntry, btnExit, btnPdf, btnOptions, btnStockSelector, btnCatFilter;
-    private ListView listView;
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        prefs = getSharedPreferences("OptiStockPrefs", MODE_PRIVATE);
-        isDarkMode = prefs.getBoolean("darkMode", true);
-        usePrices = prefs.getBoolean("usePrices", false);
-        langPref = prefs.getString("langPref", "SYS");
-
-        loadData();
-        showSplashScreen();
-    }
-
-    // =========================================================================
-    // 1. ÉCRAN DE DÉMARRAGE (IMAGE + LASER CODE-BARRES + "Développé par GoDev")
-    // =========================================================================
-    private void showSplashScreen() {
-        LinearLayout splashRoot = new LinearLayout(this);
-        splashRoot.setOrientation(LinearLayout.VERTICAL);
-        splashRoot.setGravity(Gravity.CENTER_HORIZONTAL);
-        splashRoot.setBackgroundColor(Color.parseColor("#040B1C"));
-        splashRoot.setPadding(dp(24), dp(36), dp(24), dp(24));
-
-        // Espace flexible haut
-        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.5f));
-
-        // Image principale OptiStock
-        ImageView logoView = new ImageView(this);
-        logoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
-        String customSplashB64 = prefs.getString("custom_splash_b64", "");
-
-        if (resId != 0) {
-            logoView.setImageResource(resId);
-        } else if (!customSplashB64.isEmpty()) {
-            Bitmap b = base64ToBitmap(customSplashB64);
-            if (b != null) logoView.setImageBitmap(b);
-        } else {
-            int icId = getResources().getIdentifier("ic_launcher", "drawable", getPackageName());
-            if (icId != 0) logoView.setImageResource(icId);
-        }
-
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(300), dp(300));
-        logoLp.gravity = Gravity.CENTER;
-        splashRoot.addView(logoView, logoLp);
-
-        // Barre de chargement Laser qui fait apparaître un code-barres
-        BarcodeLaserView laserView = new BarcodeLaserView(this);
-        LinearLayout.LayoutParams laserLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(90));
-        laserLp.setMargins(dp(16), dp(28), dp(16), dp(16));
-        splashRoot.addView(laserView, laserLp);
-
-        // Espace flexible bas
-        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
-
-        // Texte "Développé par GoDev"
-        TextView footerTv = new TextView(this);
-        footerTv.setText("Développé par GoDev");
-        footerTv.setTextColor(Color.parseColor("#60A5FA"));
-        footerTv.setTextSize(15);
-        footerTv.setTypeface(null, Typeface.BOLD);
-        footerTv.setGravity(Gravity.CENTER);
-        splashRoot.addView(footerTv);
-
-        setContentView(splashRoot);
-
-        // Animation de 3.5 secondes
-        ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
-        anim.setDuration(3500);
-        anim.setInterpolator(new LinearInterpolator());
-        anim.addUpdateListener(animation -> {
-            float progress = (float) animation.getAnimatedValue();
-            laserView.setProgress(progress);
-        });
-        anim.start();
-
-        mainHandler.postDelayed(() -> {
-            buildMainUI();
-            applyThemeAndLang();
-        }, 3650);
-    }
-
-    // Vue personnalisée : le laser rouge avance et révèle le code-barres
-    private class BarcodeLaserView extends View {
-        private float progress = 0f;
-        private final Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint bgBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint laserPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint framePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        private final int[] barPattern = {
-            3, 2, 5, 2, 2, 4, 6, 2, 3, 3, 2, 5, 2, 2, 4, 3, 6, 2, 2, 4,
-            3, 2, 5, 3, 2, 4, 2, 6, 3, 2, 4, 2, 5, 2, 3, 4, 2, 3, 5, 2,
-            4, 2, 3, 5, 2, 2, 6, 3, 2, 4, 3, 2
-        };
-
-        public BarcodeLaserView(Context context) {
-            super(context);
-            barPaint.setColor(Color.WHITE);
-            bgBarPaint.setColor(Color.parseColor("#1E293B"));
-
-            laserPaint.setColor(Color.parseColor("#FF1E1E"));
-            laserPaint.setStrokeWidth(dp(3));
-
-            glowPaint.setColor(Color.parseColor("#66FF0000"));
-            glowPaint.setStrokeWidth(dp(12));
-
-            framePaint.setColor(Color.parseColor("#0EA5E9"));
-            framePaint.setStyle(Paint.Style.STROKE);
-            framePaint.setStrokeWidth(dp(2));
-
-            textPaint.setColor(Color.parseColor("#94A3B8"));
-            textPaint.setTextSize(dp(12));
-            textPaint.setTextAlign(Paint.Align.CENTER);
-            textPaint.setTypeface(Typeface.MONOSPACE);
-        }
-
-        public void setProgress(float p) {
-            this.progress = p;
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            int w = getWidth();
-            int h = getHeight();
-            int padX = dp(20);
-            int padY = dp(10);
-            int barBottom = h - dp(24);
-
-            // Cadre futuriste bleu autour du code-barres
-            RectF rect = new RectF(padX - dp(8), padY - dp(4), w - padX + dp(8), barBottom + dp(6));
-            canvas.drawRoundRect(rect, dp(10), dp(10), framePaint);
-
-            float usableWidth = w - 2f * padX;
-            float laserX = padX + usableWidth * progress;
-
-            int totalUnits = 0;
-            for (int u : barPattern) totalUnits += u;
-            float unitW = usableWidth / totalUnits;
-
-            float curX = padX;
-            for (int i = 0; i < barPattern.length; i++) {
-                float bw = barPattern[i] * unitW;
-                if (i % 2 == 0) {
-                    // Ombre discrète du code-barres non scanné
-                    canvas.drawRect(curX, padY + dp(4), curX + bw, barBottom - dp(2), bgBarPaint);
-
-                    // Partie révélée par le laser
-                    if (curX < laserX) {
-                        float right = Math.min(curX + bw, laserX);
-                        canvas.drawRect(curX, padY + dp(4), right, barBottom - dp(2), barPaint);
-                    }
-                }
-                curX += bw;
-            }
-
-            // Faisceau laser vertical + halo lumineux rouge
-            canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), glowPaint);
-            canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), laserPaint);
-
-            // Point central brillant du laser
-            Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            dotPaint.setColor(Color.WHITE);
-            canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(4), glowPaint);
-            canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(2), dotPaint);
-
-            // Pourcentage de scan en dessous
-            int pct = (int) (progress * 100);
-            canvas.drawText("SCANNING... " + pct + "%", w / 2f, h - dp(4), textPaint);
-        }
-    }
-
-    // =========================================================================
-    // 2. SYSTÈME DE LANGUES (LANGUE DU TÉLÉPHONE / FR / EN / ES)
-    // =========================================================================
-    private String getEffectiveLang() {
-        if (!langPref.equals("SYS")) return langPref;
-        String sys = Locale.getDefault().getLanguage().toLowerCase();
-        if (sys.startsWith("fr")) return "FR";
-        if (sys.startsWith("es")) return "ES";
-        return "EN";
-    }
-
-    private String tr(String key) {
-        Map<String, String[]> dict = new HashMap<>();
-        dict.put("app_title", new String[]{"OptiStock", "OptiStock", "OptiStock"});
-        dict.put("refs", new String[]{"Références", "Items", "Referencias"});
-        dict.put("units", new String[]{"Total Unités", "Total Units", "Unidades Totales"});
-        dict.put("btn_in", new String[]{"+ ENTRÉE", "+ STOCK IN", "+ ENTRADA"});
-        dict.put("btn_out", new String[]{"- SORTIE", "- STOCK OUT", "- SALIDA"});
-        dict.put("search", new String[]{"Rechercher un produit ou code...", "Search product or barcode...", "Buscar producto o código..."});
-        dict.put("empty", new String[]{"Aucun produit dans ce stock.\nAppuyez sur + ENTRÉE pour scanner.", "No products in this stock.\nTap + STOCK IN to scan.", "Sin productos en este stock.\nToque + ENTRADA para escanear."});
-        dict.put("fetching", new String[]{"Recherche du produit sur Internet...", "Searching product online...", "Buscando producto en línea..."});
-        dict.put("entry_title", new String[]{"Entrée de stock", "Stock Entry", "Entrada de stock"});
-        dict.put("exit_title", new String[]{"Sortie de stock", "Stock Exit", "Salida de stock"});
-        dict.put("edit_title", new String[]{"Modifier le produit", "Edit Product", "Editar producto"});
-        dict.put("prod_name", new String[]{"Nom du produit", "Product Name", "Nombre del producto"});
-        dict.put("qty_label", new String[]{"Quantité (Lot) :", "Quantity (Batch):", "Cantidad (Lote):"});
-        dict.put("price_label", new String[]{"Prix unitaire (€ / $) :", "Unit Price (€ / $):", "Precio unitario (€ / $):"});
-        dict.put("category_label", new String[]{"Catégorie :", "Category:", "Categoría:"});
-        dict.put("current_stock", new String[]{"En stock : ", "In stock: ", "En stock: "});
-        dict.put("save", new String[]{"VALIDER", "SAVE", "GUARDAR"});
-        dict.put("cancel", new String[]{"Annuler", "Cancel", "Cancelar"});
-        dict.put("delete", new String[]{"Supprimer", "Delete", "Eliminar"});
-        dict.put("manual_code", new String[]{"Saisie manuelle du code", "Manual Barcode", "Código manual"});
-        dict.put("photo_btn", new String[]{"📷 Photo", "📷 Photo", "📷 Foto"});
-        dict.put("pdf_btn", new String[]{"📄 PDF", "📄 PDF", "📄 PDF"});
-        dict.put("pdf_ok", new String[]{"PDF enregistré avec succès !", "PDF saved successfully!", "¡PDF guardado con éxito!"});
-        dict.put("unknown_prod", new String[]{"Nouveau produit", "New Product", "Nuevo producto"});
-        dict.put("not_in_stock", new String[]{"Ce produit n'est pas dans ce stock !", "Product not in this stock!", "¡Producto no está en este stock!"});
-        dict.put("all_cats", new String[]{"Toutes catégories", "All Categories", "Todas las categorías"});
-        dict.put("uncategorized", new String[]{"Général", "General", "General"});
-        dict.put("new_cat_opt", new String[]{"➕ Créer une nouvelle catégorie...", "➕ Create new category...", "➕ Crear nueva categoría..."});
-        dict.put("new_cat_hint", new String[]{"Nom de la nouvelle catégorie", "New category name", "Nombre de la nueva categoría"});
-        dict.put("new_stock_opt", new String[]{"➕ Créer un nouveau stock...", "➕ Create new stock...", "➕ Crear nuevo stock..."});
-        dict.put("del_stock_opt", new String[]{"🗑️ Supprimer le stock actuel", "🗑️ Delete current stock", "🗑️ Eliminar stock actual"});
-        dict.put("new_stock_title", new String[]{"Nouveau Stock", "New Stock", "Nuevo Stock"});
-        dict.put("new_stock_hint", new String[]{"Ex: Réserve B, Camion, Magasin...", "Ex: Warehouse B, Truck...", "Ej: Almacén B, Camión..."});
-        dict.put("options_title", new String[]{"⚙️ Options", "⚙️ Settings", "⚙️ Opciones"});
-        dict.put("opt_lang", new String[]{"Langue de l'application :", "App Language:", "Idioma de la aplicación:"});
-        dict.put("lang_sys", new String[]{"📱 Langue du téléphone", "📱 Phone Language", "📱 Idioma del teléfono"});
-        dict.put("opt_dark", new String[]{"Mode Sombre", "Dark Mode", "Modo Oscuro"});
-        dict.put("opt_prices", new String[]{"Activer la gestion des prix", "Enable product prices", "Activar precios de productos"});
-        dict.put("opt_splash", new String[]{"🖼️ Choisir l'image de démarrage", "🖼️ Change splash screen image", "🖼️ Cambiar imagen de inicio"});
-        dict.put("exit_total_live", new String[]{"Prix total de cette sortie : ", "Total price for this exit: ", "Precio total de esta salida: "});
-        dict.put("exit_banner", new String[]{"💰 Dernière sortie : %1$.2f €  |  Total sorties : %2$.2f €", "💰 Last exit: %1$.2f  |  Total exits: %2$.2f", "💰 Última salida: %1$.2f €  |  Total salidas: %2$.2f €"});
-        dict.put("reset_total", new String[]{"Réinitialiser", "Reset", "Reiniciar"});
-
-        String eff = getEffectiveLang();
-        int idx = eff.equals("EN") ? 1 : (eff.equals("ES") ? 2 : 0);
-        return dict.containsKey(key) ? dict.get(key)[idx] : key;
-    }
-
-    // =========================================================================
-    // 3. INTERFACE PRINCIPALE (MULTI-STOCKS, CATÉGORIES, OPTIONS, PRIX)
-    // =========================================================================
-    private void buildMainUI() {
-        rootLayout = new LinearLayout(this);
-        rootLayout.setOrientation(LinearLayout.VERTICAL);
-        rootLayout.setPadding(dp(14), dp(14), dp(14), dp(10));
-
-        // --- LIGNE 1 : TITRE + BOUTON PDF + BOUTON OPTIONS ---
-        headerLayout = new LinearLayout(this);
-        headerLayout.setOrientation(LinearLayout.HORIZONTAL);
-        headerLayout.setGravity(Gravity.CENTER_VERTICAL);
-
-        titleText = new TextView(this);
-        titleText.setTextSize(22);
-        titleText.setTypeface(null, Typeface.BOLD);
-        headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        btnPdf = new Button(this);
-        btnPdf.setTextSize(12);
-        btnPdf.setAllCaps(false);
-        btnPdf.setTextColor(Color.WHITE);
-        btnPdf.setBackground(createRoundedBg(Color.parseColor("#3B82F6"), dp(10)));
-        btnPdf.setPadding(dp(12), dp(6), dp(12), dp(6));
-        LinearLayout.LayoutParams pdfLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38));
-        pdfLp.setMargins(0, 0, dp(8), 0);
-        btnPdf.setOnClickListener(v -> startPdfExport());
-        headerLayout.addView(btnPdf, pdfLp);
-
-        btnOptions = new Button(this);
-        btnOptions.setText("⚙️ Options");
-        btnOptions.setTextSize(12);
-        btnOptions.setAllCaps(false);
-        btnOptions.setPadding(dp(12), dp(6), dp(12), dp(6));
-        btnOptions.setOnClickListener(v -> showOptionsDialog());
-        headerLayout.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)));
-
-        rootLayout.addView(headerLayout);
-
-        // --- LIGNE 2 : BOUTON DÉDIÉ CHOIX DU STOCK (MENU DÉROULANT) + FILTRE CATÉGORIE ---
-        subHeaderLayout = new LinearLayout(this);
-        subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        subLp.setMargins(0, dp(10), 0, dp(10));
-
-        btnStockSelector = new Button(this);
-        btnStockSelector.setAllCaps(false);
-        btnStockSelector.setTextSize(13);
-        btnStockSelector.setTypeface(null, Typeface.BOLD);
-        btnStockSelector.setPadding(dp(12), dp(8), dp(12), dp(8));
-        btnStockSelector.setOnClickListener(this::showStockPopupMenu);
-        LinearLayout.LayoutParams stBtnLp = new LinearLayout.LayoutParams(0, dp(42), 1.1f);
-        stBtnLp.setMargins(0, 0, dp(6), 0);
-        subHeaderLayout.addView(btnStockSelector, stBtnLp);
-
-        btnCatFilter = new Button(this);
-        btnCatFilter.setAllCaps(false);
-        btnCatFilter.setTextSize(12);
-        btnCatFilter.setPadding(dp(12), dp(8), dp(12), dp(8));
-        btnCatFilter.setOnClickListener(this::showCategoryFilterPopup);
-        LinearLayout.LayoutParams catBtnLp = new LinearLayout.LayoutParams(0, dp(42), 0.9f);
-        catBtnLp.setMargins(dp(6), 0, 0, 0);
-        subHeaderLayout.addView(btnCatFilter, catBtnLp);
-
-        rootLayout.addView(subHeaderLayout, subLp);
-
-        // --- CARTE STATISTIQUES ---
-        statsCard = new LinearLayout(this);
-        statsCard.setOrientation(LinearLayout.HORIZONTAL);
-        statsCard.setGravity(Gravity.CENTER_VERTICAL);
-        statsCard.setPadding(dp(14), dp(10), dp(14), dp(10));
-        LinearLayout.LayoutParams statsParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        statsParams.setMargins(0, 0, 0, dp(10));
-
-        statsRefsText = new TextView(this);
-        statsRefsText.setTextSize(14);
-        statsRefsText.setTypeface(null, Typeface.BOLD);
-        statsCard.addView(statsRefsText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        statsUnitsText = new TextView(this);
-        statsUnitsText.setTextSize(14);
-        statsUnitsText.setTypeface(null, Typeface.BOLD);
-        statsUnitsText.setGravity(Gravity.END);
-        statsCard.addView(statsUnitsText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        rootLayout.addView(statsCard, statsParams);
-
-        // --- BOUTONS D'ACTION : + ENTRÉE (VERT) / - SORTIE (ROUGE) ---
-        LinearLayout actionsLayout = new LinearLayout(this);
-        actionsLayout.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actParams.setMargins(0, 0, 0, dp(10));
-
-        btnEntry = new Button(this);
-        btnEntry.setTextSize(15);
-        btnEntry.setTypeface(null, Typeface.BOLD);
-        btnEntry.setTextColor(Color.WHITE);
-        btnEntry.setBackground(createRoundedBg(Color.parseColor("#10B981"), dp(14)));
-        btnEntry.setPadding(0, dp(14), 0, dp(14));
-        btnEntry.setOnClickListener(v -> startBarcodeScan(true));
-        LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        btnInParams.setMargins(0, 0, dp(6), 0);
-        actionsLayout.addView(btnEntry, btnInParams);
-
-        btnExit = new Button(this);
-        btnExit.setTextSize(15);
-        btnExit.setTypeface(null, Typeface.BOLD);
-        btnExit.setTextColor(Color.WHITE);
-        btnExit.setBackground(createRoundedBg(Color.parseColor("#EF4444"), dp(14)));
-        btnExit.setPadding(0, dp(14), 0, dp(14));
-        btnExit.setOnClickListener(v -> startBarcodeScan(false));
-        LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        btnOutParams.setMargins(dp(6), 0, 0, 0);
-        actionsLayout.addView(btnExit, btnOutParams);
-
-        rootLayout.addView(actionsLayout, actParams);
-
-        // --- BARRE DE RECHERCHE ---
-        searchInput = new EditText(this);
-        searchInput.setSingleLine(true);
-        searchInput.setPadding(dp(14), dp(10), dp(14), dp(10));
-        searchInput.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                searchQuery = s.toString().trim().toLowerCase();
-                filterList();
-            }
-            @Override public void afterTextChanged(Editable s) {}
-        });
-        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        searchParams.setMargins(0, 0, 0, dp(8));
-        rootLayout.addView(searchInput, searchParams);
-
-        // --- LISTE DE L'INVENTAIRE ---
-        emptyText = new TextView(this);
-        emptyText.setGravity(Gravity.CENTER);
-        emptyText.setTextSize(15);
-        emptyText.setPadding(dp(20), dp(40), dp(20), dp(40));
-        rootLayout.addView(emptyText);
-
-        listView = new ListView(this);
-        listView.setDivider(null);
-        listView.setDividerHeight(dp(8));
-        adapter = new InventoryAdapter();
-        listView.setAdapter(adapter);
-        rootLayout.addView(listView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        // --- BANDEAU BAS : TOTAL DES PRIX LORS DES SORTIES ---
-        exitTotalBanner = new LinearLayout(this);
-        exitTotalBanner.setOrientation(LinearLayout.HORIZONTAL);
-        exitTotalBanner.setGravity(Gravity.CENTER_VERTICAL);
-        exitTotalBanner.setPadding(dp(14), dp(10), dp(14), dp(10));
-        LinearLayout.LayoutParams bannerLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        bannerLp.setMargins(0, dp(6), 0, 0);
-
-        exitTotalText = new TextView(this);
-        exitTotalText.setTextColor(Color.WHITE);
-        exitTotalText.setTextSize(13);
-        exitTotalText.setTypeface(null, Typeface.BOLD);
-        exitTotalBanner.addView(exitTotalText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        Button btnResetTotal = new Button(this);
-        btnResetTotal.setText("↺");
-        btnResetTotal.setTextColor(Color.WHITE);
-        btnResetTotal.setBackground(createRoundedBg(Color.parseColor("#991B1B"), dp(8)));
-        btnResetTotal.setOnClickListener(v -> {
-            lastExitTotal = 0.0;
-            sessionExitTotal = 0.0;
-            updateStats();
-        });
-        exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(36), dp(32)));
-
-        rootLayout.addView(exitTotalBanner, bannerLp);
-
-        setContentView(rootLayout);
-    }
-
-    // =========================================================================
-    // 4. MENU DÉROULANT DES STOCKS & FILTRE DES CATÉGORIES
-    // =========================================================================
-    private void showStockPopupMenu(View anchor) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        for (int i = 0; i < stocksList.size(); i++) {
-            String st = stocksList.get(i);
-            String label = st.equals(currentStock) ? "✅ " + st : "📦 " + st;
-            popup.getMenu().add(0, i, i, label);
-        }
-        popup.getMenu().add(1, 998, 998, tr("new_stock_opt"));
-        if (stocksList.size() > 1) {
-            popup.getMenu().add(1, 999, 999, tr("del_stock_opt"));
-        }
-
-        popup.setOnMenuItemClickListener(item -> {
-            int id = item.getItemId();
-            if (id == 998) {
-                showCreateStockDialog();
-            } else if (id == 999) {
-                deleteCurrentStock();
-            } else if (id >= 0 && id < stocksList.size()) {
-                currentStock = stocksList.get(id);
-                prefs.edit().putString("currentStock", currentStock).apply();
-                applyThemeAndLang();
-            }
-            return true;
-        });
-        popup.show();
-    }
-
-    private void showCreateStockDialog() {
-        EditText input = new EditText(this);
-        input.setHint(tr("new_stock_hint"));
-        input.setPadding(dp(16), dp(12), dp(16), dp(12));
-        new AlertDialog.Builder(this)
-                .setTitle(tr("new_stock_title"))
-                .setView(input)
-                .setPositiveButton(tr("save"), (d, w) -> {
-                    String name = input.getText().toString().trim();
-                    if (!name.isEmpty()) {
-                        if (!stocksList.contains(name)) stocksList.add(name);
-                        currentStock = name;
-                        saveData();
-                        applyThemeAndLang();
-                    }
-                })
-                .setNegativeButton(tr("cancel"), null)
-                .show();
-    }
-
-    private void deleteCurrentStock() {
-        if (stocksList.size() <= 1) return;
-        String toDelete = currentStock;
-        inventory.removeIf(p -> toDelete.equals(p.stockName));
-        stocksList.remove(toDelete);
-        currentStock = stocksList.get(0);
-        saveData();
-        applyThemeAndLang();
-    }
-
-    private void showCategoryFilterPopup(View anchor) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        popup.getMenu().add(0, -1, 0, "🏷️ " + tr("all_cats"));
-        for (int i = 0; i < categoriesList.size(); i++) {
-            popup.getMenu().add(0, i, i + 1, "📁 " + categoriesList.get(i));
-        }
-        popup.setOnMenuItemClickListener(item -> {
-            int id = item.getItemId();
-            if (id == -1) selectedCategoryFilter = "ALL";
-            else selectedCategoryFilter = categoriesList.get(id);
-            applyThemeAndLang();
-            return true;
-        });
-        popup.show();
-    }
-
-    // =========================================================================
-    // 5. MENU OPTIONS (LANGUE, MODE SOMBRE, PRIX, IMAGE DE DÉMARRAGE)
-    // =========================================================================
     private void showOptionsDialog() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(16), dp(20), dp(10));
 
-        // Choix de la langue
         TextView langLabel = new TextView(this);
         langLabel.setText(tr("opt_lang"));
         langLabel.setTypeface(null, Typeface.BOLD);
@@ -1277,21 +596,18 @@ public class MainActivity extends AppCompatActivity {
         langSpinner.setSelection(curIdx);
         box.addView(langSpinner);
 
-        // Switch Mode Sombre
         Switch darkSwitch = new Switch(this);
         darkSwitch.setText(tr("opt_dark"));
         darkSwitch.setChecked(isDarkMode);
         darkSwitch.setPadding(0, dp(16), 0, dp(12));
         box.addView(darkSwitch);
 
-        // Switch Activer les Prix
         Switch priceSwitch = new Switch(this);
         priceSwitch.setText(tr("opt_prices"));
         priceSwitch.setChecked(usePrices);
         priceSwitch.setPadding(0, dp(8), 0, dp(16));
         box.addView(priceSwitch);
 
-        // Bouton pour choisir l'image de démarrage depuis la galerie si besoin
         Button btnPickSplash = new Button(this);
         btnPickSplash.setText(tr("opt_splash"));
         btnPickSplash.setAllCaps(false);
@@ -1389,9 +705,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // =========================================================================
-    // 6. SCANNER + RECHERCHE WEB + FENÊTRE ENTRÉE/SORTIE AVEC CATÉGORIES & PRIX
-    // =========================================================================
     private void startBarcodeScan(boolean isEntry) {
         GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
                 .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
@@ -1434,7 +747,6 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, tr("not_in_stock"), Toast.LENGTH_LONG).show();
                 return;
             }
-            // Vérifie si le produit existe déjà dans un autre stock pour réutiliser son nom/photo/prix
             Product fromOtherStock = findProductAnywhere(barcode);
             if (fromOtherStock != null) {
                 Product copy = new Product();
@@ -1540,7 +852,6 @@ public class MainActivity extends AppCompatActivity {
         return "";
     }
 
-    // Fenêtre complète : Photo + Nom + Catégorie (+ création à la volée) + Prix + Lot + Total Sortie
     private void showProductTransactionDialog(Product product, boolean isEntry, boolean isNew) {
         tempPhotoBase64 = product.imageBase64 != null ? product.imageBase64 : "";
 
@@ -1550,7 +861,6 @@ public class MainActivity extends AppCompatActivity {
         box.setPadding(dp(20), dp(14), dp(20), dp(10));
         scroll.addView(box);
 
-        // --- PHOTO & CODE ---
         LinearLayout photoRow = new LinearLayout(this);
         photoRow.setOrientation(LinearLayout.HORIZONTAL);
         photoRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -1584,13 +894,11 @@ public class MainActivity extends AppCompatActivity {
         photoRow.addView(codeAndCam);
         box.addView(photoRow);
 
-        // --- NOM DU PRODUIT ---
         EditText nameInput = new EditText(this);
         nameInput.setHint(tr("prod_name"));
         nameInput.setText(product.name);
         box.addView(nameInput);
 
-        // --- CHOIX OU CRÉATION DE CATÉGORIE ---
         TextView catTv = new TextView(this);
         catTv.setText(tr("category_label"));
         catTv.setTypeface(null, Typeface.BOLD);
@@ -1626,7 +934,6 @@ public class MainActivity extends AppCompatActivity {
         box.addView(catSpinner);
         box.addView(newCatInput);
 
-        // --- CHAMP PRIX UNITAIRE (SI OPTION ACTIVÉE) ---
         EditText priceInput = new EditText(this);
         priceInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         priceInput.setText(product.price > 0 ? String.valueOf(product.price) : "");
@@ -1640,7 +947,6 @@ public class MainActivity extends AppCompatActivity {
             box.addView(priceInput);
         }
 
-        // --- QUANTITÉ (LOT) ---
         TextView qtyLabel = new TextView(this);
         qtyLabel.setText(tr("qty_label"));
         qtyLabel.setTypeface(null, Typeface.BOLD);
@@ -1656,7 +962,6 @@ public class MainActivity extends AppCompatActivity {
         qtyInput.selectAll();
         box.addView(qtyInput);
 
-        // --- AFFICHAGE DU PRIX TOTAL EN BAS LORS D'UNE SORTIE ---
         TextView liveExitTotalTv = new TextView(this);
         liveExitTotalTv.setTextSize(16);
         liveExitTotalTv.setTypeface(null, Typeface.BOLD);
@@ -1681,7 +986,6 @@ public class MainActivity extends AppCompatActivity {
             liveExitTotalTv.setText(tr("exit_total_live") + String.format(Locale.getDefault(), "%.2f €", tot));
         };
 
-        // Boutons rapides : -1, +1, +5, +10, +50
         LinearLayout quickBtns = new LinearLayout(this);
         quickBtns.setOrientation(LinearLayout.HORIZONTAL);
         int[] steps = new int[]{-1, 1, 5, 10, 50};
@@ -1723,7 +1027,6 @@ public class MainActivity extends AppCompatActivity {
                     String enteredName = nameInput.getText().toString().trim();
                     if (enteredName.isEmpty()) enteredName = tr("unknown_prod") + " (" + product.barcode + ")";
 
-                    // Gestion de la catégorie (existante ou nouvelle créée à la volée)
                     String chosenCat;
                     if (catSpinner.getSelectedItemPosition() == spinnerCats.size() - 1) {
                         chosenCat = newCatInput.getText().toString().trim();
@@ -1780,9 +1083,6 @@ public class MainActivity extends AppCompatActivity {
         builder.show();
     }
 
-    // =========================================================================
-    // 7. LISTE DES PRODUITS (AVEC BADGE CATÉGORIE, PRIX ET QUANTITÉ)
-    // =========================================================================
     private class InventoryAdapter extends BaseAdapter {
         @Override public int getCount() { return filteredInventory.size(); }
         @Override public Object getItem(int position) { return filteredInventory.get(position); }
@@ -1883,9 +1183,6 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
 
-    // =========================================================================
-    // 8. EXPORT PDF DU STOCK ACTUEL (AVEC CATÉGORIES & PRIX)
-    // =========================================================================
     private void startPdfExport() {
         String dateStr = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -2027,9 +1324,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // =========================================================================
-    // 9. SAUVEGARDE & CHARGEMENT (STOCKS, CATÉGORIES, PRODUITS, PRIX)
-    // =========================================================================
     private void saveData() {
         try {
             JSONArray prodArr = new JSONArray();
