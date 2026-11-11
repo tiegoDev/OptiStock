@@ -7,8 +7,8 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_launcher"
-        android:roundIcon="@drawable/ic_launcher"
+        android:icon="@drawable/splash_logo"
+        android:roundIcon="@drawable/splash_logo"
         android:label="OptiStock"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
@@ -28,5 +28,4 @@
             </intent-filter>
         </activity>
     </application>
-
 </manifest>

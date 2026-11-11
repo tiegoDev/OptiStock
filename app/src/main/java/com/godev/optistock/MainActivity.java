@@ -103,7 +103,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_CREATE_PDF = 1001;
     private static final int REQ_TAKE_PHOTO = 1002;
-    private static final int REQ_PICK_SPLASH = 1003;
     private ImageView currentPhotoPreview;
     private String tempPhotoBase64 = "";
 
@@ -135,33 +134,28 @@ public class MainActivity extends AppCompatActivity {
         splashRoot.setBackgroundColor(Color.parseColor("#040B1C"));
         splashRoot.setPadding(dp(24), dp(36), dp(24), dp(24));
 
-        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.5f));
+        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.4f));
 
         ImageView logoView = new ImageView(this);
         logoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
         int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
-        String customSplashB64 = prefs.getString("custom_splash_b64", "");
-
         if (resId != 0) {
             logoView.setImageResource(resId);
-        } else if (!customSplashB64.isEmpty()) {
-            Bitmap b = base64ToBitmap(customSplashB64);
-            if (b != null) logoView.setImageBitmap(b);
         } else {
             int icId = getResources().getIdentifier("ic_launcher", "drawable", getPackageName());
             if (icId != 0) logoView.setImageResource(icId);
         }
 
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(300), dp(300));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(280), dp(280));
         logoLp.gravity = Gravity.CENTER;
         splashRoot.addView(logoView, logoLp);
 
         BarcodeLaserView laserView = new BarcodeLaserView(this);
-        LinearLayout.LayoutParams laserLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(90));
-        laserLp.setMargins(dp(16), dp(28), dp(16), dp(16));
+        LinearLayout.LayoutParams laserLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(85));
+        laserLp.setMargins(dp(16), dp(24), dp(16), dp(16));
         splashRoot.addView(laserView, laserLp);
 
-        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
+        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.8f));
 
         TextView footerTv = new TextView(this);
         footerTv.setText("Développé par GoDev");
@@ -183,150 +177,8 @@ public class MainActivity extends AppCompatActivity {
         anim.start();
 
         mainHandler.postDelayed(() -> {
-            buildMainUI();
-            applyThemeAndLang();
-        }, 3650);
-    }
-
-    private class BarcodeLaserView extends View {
-        private float progress = 0f;
-        private final Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint bgBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint laserPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint framePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        private final int[] barPattern = {
-            3, 2, 5, 2, 2, 4, 6, 2, 3, 3, 2, 5, 2, 2, 4, 3, 6, 2, 2, 4,
-            3, 2, 5, 3, 2, 4, 2, 6, 3, 2, 4, 2, 5, 2, 3, 4, 2, 3, 5, 2,
-            4, 2, 3, 5, 2, 2, 6, 3, 2, 4, 3, 2
-        };
-
-        public BarcodeLaserView(Context context) {
-            super(context);
-            barPaint.setColor(Color.WHITE);
-            bgBarPaint.setColor(Color.parseColor("#1E293B"));
-            laserPaint.setColor(Color.parseColor("#FF1E1E"));
-            laserPaint.setStrokeWidth(dp(3));
-            glowPaint.setColor(Color.parseColor("#66FF0000"));
-            glowPaint.setStrokeWidth(dp(12));
-            framePaint.setColor(Color.parseColor("#0EA5E9"));
-            framePaint.setStyle(Paint.Style.STROKE);
-            framePaint.setStrokeWidth(dp(2));
-            textPaint.setColor(Color.parseColor("#94A3B8"));
-            textPaint.setTextSize(dp(12));
-            textPaint.setTextAlign(Paint.Align.CENTER);
-            textPaint.setTypeface(Typeface.MONOSPACE);
-        }
-
-        public void setProgress(float p) {
-            this.progress = p;
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            int w = getWidth();
-            int h = getHeight();
-            int padX = dp(20);
-            int padY = dp(10);
-            int barBottom = h - dp(24);
-
-            RectF rect = new RectF(padX - dp(8), padY - dp(4), w - padX + dp(8), barBottom + dp(6));
-            canvas.drawRoundRect(rect, dp(10), dp(10), framePaint);
-
-            float usableWidth = w - 2f * padX;
-            float laserX = padX + usableWidth * progress;
-
-            int totalUnits = 0;
-            for (int u : barPattern) totalUnits += u;
-            float unitW = usableWidth / totalUnits;
-
-            float curX = padX;
-            for (int i = 0; i < barPattern.length; i++) {
-                float bw = barPattern[i] * unitW;
-                if (i % 2 == 0) {
-                    canvas.drawRect(curX, padY + dp(4), curX + bw, barBottom - dp(2), bgBarPaint);
-                    if (curX < laserX) {
-                        float right = Math.min(curX + bw, laserX);
-                        canvas.drawRect(curX, padY + dp(4), right, barBottom - dp(2), barPaint);
-                    }
-                }
-                curX += bw;
-            }
-
-            canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), glowPaint);
-            canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), laserPaint);
-
-            Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            dotPaint.setColor(Color.WHITE);
-            canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(4), glowPaint);
-            canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(2), dotPaint);
-
-            int pct = (int) (progress * 100);
-            canvas.drawText("SCANNING... " + pct + "%", w / 2f, h - dp(4), textPaint);
-        }
-    }
-
-    private String getEffectiveLang() {
-        if (!langPref.equals("SYS")) return langPref;
-        String sys = Locale.getDefault().getLanguage().toLowerCase();
-        if (sys.startsWith("fr")) return "FR";
-        if (sys.startsWith("es")) return "ES";
-        return "EN";
-    }
-
-    private String tr(String key) {
-        Map<String, String[]> dict = new HashMap<>();
-        dict.put("app_title", new String[]{"OptiStock", "OptiStock", "OptiStock"});
-        dict.put("refs", new String[]{"Références", "Items", "Referencias"});
-        dict.put("units", new String[]{"Total Unités", "Total Units", "Unidades Totales"});
-        dict.put("btn_in", new String[]{"+ ENTRÉE", "+ STOCK IN", "+ ENTRADA"});
-        dict.put("btn_out", new String[]{"- SORTIE", "- STOCK OUT", "- SALIDA"});
-        dict.put("search", new String[]{"Rechercher un produit ou code...", "Search product or barcode...", "Buscar producto o código..."});
-        dict.put("empty", new String[]{"Aucun produit dans ce stock.\nAppuyez sur + ENTRÉE pour scanner.", "No products in this stock.\nTap + STOCK IN to scan.", "Sin productos en este stock.\nToque + ENTRADA para escanear."});
-        dict.put("fetching", new String[]{"Recherche du produit sur Internet...", "Searching product online...", "Buscando producto en línea..."});
-        dict.put("entry_title", new String[]{"Entrée de stock", "Stock Entry", "Entrada de stock"});
-        dict.put("exit_title", new String[]{"Sortie de stock", "Stock Exit", "Salida de stock"});
-        dict.put("edit_title", new String[]{"Modifier le produit", "Edit Product", "Editar producto"});
-        dict.put("prod_name", new String[]{"Nom du produit", "Product Name", "Nombre del producto"});
-        dict.put("qty_label", new String[]{"Quantité (Lot) :", "Quantity (Batch):", "Cantidad (Lote):"});
-        dict.put("price_label", new String[]{"Prix unitaire (€ / $) :", "Unit Price (€ / $):", "Precio unitario (€ / $):"});
-        dict.put("category_label", new String[]{"Catégorie :", "Category:", "Categoría:"});
-        dict.put("current_stock", new String[]{"En stock : ", "In stock: ", "En stock: "});
-        dict.put("save", new String[]{"VALIDER", "SAVE", "GUARDAR"});
-        dict.put("cancel", new String[]{"Annuler", "Cancel", "Cancelar"});
-        dict.put("delete", new String[]{"Supprimer", "Delete", "Eliminar"});
-        dict.put("manual_code", new String[]{"Saisie manuelle du code", "Manual Barcode", "Código manual"});
-        dict.put("photo_btn", new String[]{"📷 Photo", "📷 Photo", "📷 Foto"});
-        dict.put("pdf_btn", new String[]{"📄 PDF", "📄 PDF", "📄 PDF"});
-        dict.put("pdf_ok", new String[]{"PDF enregistré avec succès !", "PDF saved successfully!", "¡PDF guardado con éxito!"});
-        dict.put("unknown_prod", new String[]{"Nouveau produit", "New Product", "Nuevo producto"});
-        dict.put("not_in_stock", new String[]{"Ce produit n'est pas dans ce stock !", "Product not in this stock!", "¡Producto no está en este stock!"});
-        dict.put("all_cats", new String[]{"Toutes catégories", "All Categories", "Todas las categorías"});
-        dict.put("uncategorized", new String[]{"Général", "General", "General"});
-        dict.put("new_cat_opt", new String[]{"➕ Créer une nouvelle catégorie...", "➕ Create new category...", "➕ Crear nueva categoría..."});
-        dict.put("new_cat_hint", new String[]{"Nom de la nouvelle catégorie", "New category name", "Nombre de la nueva categoría"});
-        dict.put("new_stock_opt", new String[]{"➕ Créer un nouveau stock...", "➕ Create new stock...", "➕ Crear nuevo stock..."});
-        dict.put("del_stock_opt", new String[]{"🗑️ Supprimer le stock actuel", "🗑️ Delete current stock", "🗑️ Eliminar stock actual"});
-        dict.put("new_stock_title", new String[]{"Nouveau Stock", "New Stock", "Nuevo Stock"});
-        dict.put("new_stock_hint", new String[]{"Ex: Réserve B, Camion, Magasin...", "Ex: Warehouse B, Truck...", "Ej: Almacén B, Camión..."});
-        dict.put("options_title", new String[]{"⚙️ Options", "⚙️ Settings", "⚙️ Opciones"});
-        dict.put("opt_lang", new String[]{"Langue de l'application :", "App Language:", "Idioma de la aplicación:"});
-        dict.put("lang_sys", new String[]{"📱 Langue du téléphone", "📱 Phone Language", "📱 Idioma del teléfono"});
-        dict.put("opt_dark", new String[]{"Mode Sombre", "Dark Mode", "Modo Oscuro"});
-        dict.put("opt_prices", new String[]{"Activer la gestion des prix", "Enable product prices", "Activar precios de productos"});
-        dict.put("opt_splash", new String[]{"🖼️ Choisir l'image de démarrage", "🖼️ Change splash screen image", "🖼️ Cambiar imagen de inicio"});
-        dict.put("exit_total_live", new String[]{"Prix total de cette sortie : ", "Total price for this exit: ", "Precio total de esta salida: "});
-        dict.put("exit_banner", new String[]{"💰 Dernière sortie : %1$.2f €  |  Total sorties : %2$.2f €", "💰 Last exit: %1$.2f  |  Total exits: %2$.2f", "💰 Última salida: %1$.2f €  |  Total salidas: %2$.2f €"});
-        dict.put("reset_total", new String[]{"Réinitialiser", "Reset", "Reiniciar"});
-
-        String eff = getEffectiveLang();
-        int idx = eff.equals("EN") ? 1 : (eff.equals("ES") ? 2 : 0);
-        return dict.containsKey(key) ? dict.get(key)[idx] : key;
-    }
+            build
+cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
 
     private void buildMainUI() {
         rootLayout = new LinearLayout(this);
@@ -559,14 +411,41 @@ public class MainActivity extends AppCompatActivity {
         for (int i = 0; i < categoriesList.size(); i++) {
             popup.getMenu().add(0, i, i + 1, "📁 " + categoriesList.get(i));
         }
+        popup.getMenu().add(1, 999, 999, tr("new_cat_opt"));
+
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
-            if (id == -1) selectedCategoryFilter = "ALL";
-            else selectedCategoryFilter = categoriesList.get(id);
+            if (id == -1) {
+                selectedCategoryFilter = "ALL";
+            } else if (id == 999) {
+                showCreateCategoryDialog();
+            } else if (id >= 0 && id < categoriesList.size()) {
+                selectedCategoryFilter = categoriesList.get(id);
+            }
             applyThemeAndLang();
             return true;
         });
         popup.show();
+    }
+
+    private void showCreateCategoryDialog() {
+        EditText input = new EditText(this);
+        input.setHint(tr("new_cat_hint"));
+        input.setPadding(dp(16), dp(12), dp(16), dp(12));
+        new AlertDialog.Builder(this)
+                .setTitle("➕ " + tr("category_label"))
+                .setView(input)
+                .setPositiveButton(tr("save"), (d, w) -> {
+                    String cat = input.getText().toString().trim();
+                    if (!cat.isEmpty() && !categoriesList.contains(cat)) {
+                        categoriesList.add(cat);
+                        selectedCategoryFilter = cat;
+                        saveData();
+                        applyThemeAndLang();
+                    }
+                })
+                .setNegativeButton(tr("cancel"), null)
+                .show();
     }
 
     private void showOptionsDialog() {
@@ -607,15 +486,6 @@ public class MainActivity extends AppCompatActivity {
         priceSwitch.setChecked(usePrices);
         priceSwitch.setPadding(0, dp(8), 0, dp(16));
         box.addView(priceSwitch);
-
-        Button btnPickSplash = new Button(this);
-        btnPickSplash.setText(tr("opt_splash"));
-        btnPickSplash.setAllCaps(false);
-        btnPickSplash.setOnClickListener(v -> {
-            Intent pick = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-            try { startActivityForResult(pick, REQ_PICK_SPLASH); } catch (Exception ignored) {}
-        });
-        box.addView(btnPickSplash);
 
         new AlertDialog.Builder(this)
                 .setTitle(tr("options_title"))
@@ -1308,19 +1178,6 @@ public class MainActivity extends AppCompatActivity {
                 tempPhotoBase64 = bitmapToBase64(photo);
                 if (currentPhotoPreview != null) currentPhotoPreview.setImageBitmap(photo);
             }
-        } else if (requestCode == REQ_PICK_SPLASH && data.getData() != null) {
-            try {
-                InputStream is = getContentResolver().openInputStream(data.getData());
-                Bitmap bmp = BitmapFactory.decodeStream(is);
-                if (bmp != null) {
-                    Bitmap scaled = Bitmap.createScaledBitmap(bmp, 420, 420, true);
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    scaled.compress(Bitmap.CompressFormat.PNG, 90, baos);
-                    String b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
-                    prefs.edit().putString("custom_splash_b64", b64).apply();
-                    Toast.makeText(this, "✅ Image de démarrage enregistrée !", Toast.LENGTH_SHORT).show();
-                }
-            } catch (Exception ignored) {}
         }
     }
 
