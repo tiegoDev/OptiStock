@@ -217,7 +217,9 @@ public class MainActivity extends AppCompatActivity {
             canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), glowPaint);
             canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), laserPaint);
             canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(4), glowPaint);
-            canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(2), new Paint(Paint.ANTI_ALIAS_FLAG){{setColor(Color.WHITE);}});
+            Paint whiteDot = new Paint(Paint.ANTI_ALIAS_FLAG);
+            whiteDot.setColor(Color.WHITE);
+            canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(2), whiteDot);
             canvas.drawText("SCANNING... " + (int)(progress * 100) + "%", w / 2f, h - dp(4), textPaint);
         }
     }
@@ -759,7 +761,9 @@ public class MainActivity extends AppCompatActivity {
             Bitmap b = base64ToBitmap(tempPhotoBase64);
             if (b != null) currentPhotoPreview.setImageBitmap(b);
         }
-        photoRow.addView(currentPhotoPreview, new LinearLayout.LayoutParams(dp(76), dp(76)){{setMargins(0,0,dp(14),0);}});
+        LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(76), dp(76));
+        imgLp.setMargins(0, 0, dp(14), 0);
+        photoRow.addView(currentPhotoPreview, imgLp);
 
         LinearLayout codeAndCam = new LinearLayout(this);
         codeAndCam.setOrientation(LinearLayout.VERTICAL);
@@ -861,7 +865,9 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout quickBtns = new LinearLayout(this);
         quickBtns.setOrientation(LinearLayout.HORIZONTAL);
-        for (int step : new int[]{-1, 1, 5, 10, 50}) {
+        int[] steps = {-1, 1, 5, 10, 50};
+        for (int i = 0; i < steps.length; i++) {
+            final int step = steps[i];
             Button b = new Button(this);
             b.setText(step > 0 ? "+" + step : String.valueOf(step));
             b.setTextSize(12);
@@ -966,7 +972,9 @@ public class MainActivity extends AppCompatActivity {
                 Bitmap b = base64ToBitmap(p.imageBase64);
                 if (b != null) img.setImageBitmap(b);
             }
-            card.addView(img, new LinearLayout.LayoutParams(dp(54), dp(54)){{setMargins(0,0,dp(12),0);}});
+            LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(54), dp(54));
+            imgLp.setMargins(0, 0, dp(12), 0);
+            card.addView(img, imgLp);
 
             LinearLayout info = new LinearLayout(MainActivity.this);
             info.setOrientation(LinearLayout.VERTICAL);
@@ -1039,7 +1047,10 @@ public class MainActivity extends AppCompatActivity {
         try {
             PdfDocument pdf = new PdfDocument();
             Paint paint = new Paint();
-            Paint linePaint = new Paint() {{ setColor(Color.LTGRAY); setStrokeWidth(1f); }};
+            Paint linePaint = new Paint();
+            linePaint.setColor(Color.LTGRAY);
+            linePaint.setStrokeWidth(1f);
+
             int pageWidth = 595, pageHeight = 842, pageNumber = 1, y = 55;
             PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
             PdfDocument.Page page = pdf.startPage(pageInfo);
