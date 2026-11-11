@@ -21,8 +21,11 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Build APK and AAB
-        run: ./gradlew assembleDebug bundleRelease
+      - name: Build Debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Build Release AAB
+        run: gradle bundleRelease --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
