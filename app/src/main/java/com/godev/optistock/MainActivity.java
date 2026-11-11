@@ -315,7 +315,7 @@ public class MainActivity extends AppCompatActivity {
         btnStockSelector.setTextSize(13);
         btnStockSelector.setTypeface(null, Typeface.BOLD);
         btnStockSelector.setPadding(dp(12), dp(8), dp(12), dp(8));
-        btnStockSelector.setOnClickListener(this::showStockPopupMenu);
+        btnStockSelector.setOnClickListener(v -> showStockPopupMenu(v));
         LinearLayout.LayoutParams stBtnLp = new LinearLayout.LayoutParams(0, dp(42), 1.1f);
         stBtnLp.setMargins(0, 0, dp(6), 0);
         subHeaderLayout.addView(btnStockSelector, stBtnLp);
@@ -324,7 +324,7 @@ public class MainActivity extends AppCompatActivity {
         btnCatFilter.setAllCaps(false);
         btnCatFilter.setTextSize(12);
         btnCatFilter.setPadding(dp(12), dp(8), dp(12), dp(8));
-        btnCatFilter.setOnClickListener(this::showCategoryFilterPopup);
+        btnCatFilter.setOnClickListener(v -> showCategoryFilterPopup(v));
         LinearLayout.LayoutParams catBtnLp = new LinearLayout.LayoutParams(0, dp(42), 0.9f);
         catBtnLp.setMargins(dp(6), 0, 0, 0);
         subHeaderLayout.addView(btnCatFilter, catBtnLp);
@@ -865,20 +865,27 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout quickBtns = new LinearLayout(this);
         quickBtns.setOrientation(LinearLayout.HORIZONTAL);
-        int[] steps = {-1, 1, 5, 10, 50};
-        for (int i = 0; i < steps.length; i++) {
-            final int step = steps[i];
-            Button b = new Button(this);
-            b.setText(step > 0 ? "+" + step : String.valueOf(step));
-            b.setTextSize(12);
-            b.setOnClickListener(v -> {
-                int cur = 1;
-                try { cur = Integer.parseInt(qtyInput.getText().toString().trim()); } catch (Exception ignored) {}
-                qtyInput.setText(String.valueOf(Math.max(1, cur + step)));
-                updateLiveTotal.run();
-            });
-            quickBtns.addView(b, new LinearLayout.LayoutParams(0, dp(38), 1f));
-        }
+        
+        Button b1 = new Button(this); b1.setText("-1"); b1.setTextSize(12);
+        b1.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(Math.max(1, c-1))); updateLiveTotal.run(); });
+        quickBtns.addView(b1, new LinearLayout.LayoutParams(0, dp(38), 1f));
+
+        Button b2 = new Button(this); b2.setText("+1"); b2.setTextSize(12);
+        b2.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(c+1)); updateLiveTotal.run(); });
+        quickBtns.addView(b2, new LinearLayout.LayoutParams(0, dp(38), 1f));
+
+        Button b3 = new Button(this); b3.setText("+5"); b3.setTextSize(12);
+        b3.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(c+5)); updateLiveTotal.run(); });
+        quickBtns.addView(b3, new LinearLayout.LayoutParams(0, dp(38), 1f));
+
+        Button b4 = new Button(this); b4.setText("+10"); b4.setTextSize(12);
+        b4.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(c+10)); updateLiveTotal.run(); });
+        quickBtns.addView(b4, new LinearLayout.LayoutParams(0, dp(38), 1f));
+
+        Button b5 = new Button(this); b5.setText("+50"); b5.setTextSize(12);
+        b5.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(c+50)); updateLiveTotal.run(); });
+        quickBtns.addView(b5, new LinearLayout.LayoutParams(0, dp(38), 1f));
+
         box.addView(quickBtns);
         box.addView(liveExitTotalTv, totalLp);
 
