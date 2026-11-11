@@ -74,12 +74,8 @@ import java.util.concurrent.Executors;
 public class MainActivity extends AppCompatActivity {
 
     static class Product {
-        String barcode;
-        String name;
+        String barcode, name, imageBase64, stockName, category;
         int quantity;
-        String imageBase64;
-        String stockName;
-        String category;
         double price;
     }
 
@@ -90,7 +86,6 @@ public class MainActivity extends AppCompatActivity {
 
     private String currentStock = "";
     private String selectedCategoryFilter = "ALL";
-
     private InventoryAdapter adapter;
     private SharedPreferences prefs;
 
@@ -122,7 +117,6 @@ public class MainActivity extends AppCompatActivity {
         isDarkMode = prefs.getBoolean("darkMode", true);
         usePrices = prefs.getBoolean("usePrices", false);
         langPref = prefs.getString("langPref", "SYS");
-
         loadData();
         showSplashScreen();
     }
@@ -133,18 +127,13 @@ public class MainActivity extends AppCompatActivity {
         splashRoot.setGravity(Gravity.CENTER_HORIZONTAL);
         splashRoot.setBackgroundColor(Color.parseColor("#040B1C"));
         splashRoot.setPadding(dp(24), dp(36), dp(24), dp(24));
-
         splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.4f));
 
         ImageView logoView = new ImageView(this);
         logoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
         int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
-        if (resId != 0) {
-            logoView.setImageResource(resId);
-        } else {
-            int icId = getResources().getIdentifier("ic_launcher", "drawable", getPackageName());
-            if (icId != 0) logoView.setImageResource(icId);
-        }
+        if (resId != 0) logoView.setImageResource(resId);
+        else logoView.setImageResource(android.R.drawable.ic_menu_box);
 
         LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(280), dp(280));
         logoLp.gravity = Gravity.CENTER;
@@ -170,15 +159,115 @@ public class MainActivity extends AppCompatActivity {
         ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
         anim.setDuration(3500);
         anim.setInterpolator(new LinearInterpolator());
-        anim.addUpdateListener(animation -> {
-            float progress = (float) animation.getAnimatedValue();
-            laserView.setProgress(progress);
-        });
+        anim.addUpdateListener(animation -> laserView.setProgress((float) animation.getAnimatedValue()));
         anim.start();
 
         mainHandler.postDelayed(() -> {
-            build
-cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
+            buildMainUI();
+            applyThemeAndLang();
+        }, 3650);
+    }
+
+    private class BarcodeLaserView extends View {
+        private float progress = 0f;
+        private final Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint bgBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint laserPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint framePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int[] barPattern = {3,2,5,2,2,4,6,2,3,3,2,5,2,2,4,3,6,2,2,4,3,2,5,3,2,4,2,6,3,2,4,2,5,2,3,4,2,3,5,2,4,2,3,5,2,2,6,3,2,4,3,2};
+
+        public BarcodeLaserView(Context context) {
+            super(context);
+            barPaint.setColor(Color.WHITE);
+            bgBarPaint.setColor(Color.parseColor("#1E293B"));
+            laserPaint.setColor(Color.parseColor("#FF1E1E"));
+            laserPaint.setStrokeWidth(dp(3));
+            glowPaint.setColor(Color.parseColor("#66FF0000"));
+            glowPaint.setStrokeWidth(dp(12));
+            framePaint.setColor(Color.parseColor("#0EA5E9"));
+            framePaint.setStyle(Paint.Style.STROKE);
+            framePaint.setStrokeWidth(dp(2));
+            textPaint.setColor(Color.parseColor("#94A3B8"));
+            textPaint.setTextSize(dp(12));
+            textPaint.setTextAlign(Paint.Align.CENTER);
+            textPaint.setTypeface(Typeface.MONOSPACE);
+        }
+
+        public void setProgress(float p) { this.progress = p; invalidate(); }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            int w = getWidth(), h = getHeight(), padX = dp(20), padY = dp(10), barBottom = h - dp(24);
+            canvas.drawRoundRect(new RectF(padX - dp(8), padY - dp(4), w - padX + dp(8), barBottom + dp(6)), dp(10), dp(10), framePaint);
+            float usableWidth = w - 2f * padX, laserX = padX + usableWidth * progress;
+            int totalUnits = 0;
+            for (int u : barPattern) totalUnits += u;
+            float unitW = usableWidth / totalUnits, curX = padX;
+            for (int i = 0; i < barPattern.length; i++) {
+                float bw = barPattern[i] * unitW;
+                if (i % 2 == 0) {
+                    canvas.drawRect(curX, padY + dp(4), curX + bw, barBottom - dp(2), bgBarPaint);
+                    if (curX < laserX) canvas.drawRect(curX, padY + dp(4), Math.min(curX + bw, laserX), barBottom - dp(2), barPaint);
+                }
+                curX += bw;
+            }
+            canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), glowPaint);
+            canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), laserPaint);
+            canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(4), glowPaint);
+            canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(2), new Paint(Paint.ANTI_ALIAS_FLAG){{setColor(Color.WHITE);}});
+            canvas.drawText("SCANNING... " + (int)(progress * 100) + "%", w / 2f, h - dp(4), textPaint);
+        }
+    }
+
+    private String tr(String key) {
+        Map<String, String[]> dict = new HashMap<>();
+        dict.put("app_title", new String[]{"OptiStock", "OptiStock", "OptiStock"});
+        dict.put("refs", new String[]{"Références", "Items", "Referencias"});
+        dict.put("units", new String[]{"Total Unités", "Total Units", "Unidades Totales"});
+        dict.put("btn_in", new String[]{"+ ENTRÉE", "+ STOCK IN", "+ ENTRADA"});
+        dict.put("btn_out", new String[]{"- SORTIE", "- STOCK OUT", "- SALIDA"});
+        dict.put("search", new String[]{"Rechercher un produit ou code...", "Search product or barcode...", "Buscar producto o código..."});
+        dict.put("empty", new String[]{"Aucun produit dans ce stock.\nAppuyez sur + ENTRÉE pour scanner.", "No products in this stock.\nTap + STOCK IN to scan.", "Sin productos en este stock.\nToque + ENTRADA para escanear."});
+        dict.put("fetching", new String[]{"Recherche du produit sur Internet...", "Searching product online...", "Buscando producto en línea..."});
+        dict.put("entry_title", new String[]{"Entrée de stock", "Stock Entry", "Entrada de stock"});
+        dict.put("exit_title", new String[]{"Sortie de stock", "Stock Exit", "Salida de stock"});
+        dict.put("prod_name", new String[]{"Nom du produit", "Product Name", "Nombre del producto"});
+        dict.put("qty_label", new String[]{"Quantité (Lot) :", "Quantity (Batch):", "Cantidad (Lote):"});
+        dict.put("price_label", new String[]{"Prix unitaire (€ / $) :", "Unit Price (€ / $):", "Precio unitario (€ / $):"});
+        dict.put("category_label", new String[]{"Catégorie :", "Category:", "Categoría:"});
+        dict.put("current_stock", new String[]{"En stock : ", "In stock: ", "En stock: "});
+        dict.put("save", new String[]{"VALIDER", "SAVE", "GUARDAR"});
+        dict.put("cancel", new String[]{"Annuler", "Cancel", "Cancelar"});
+        dict.put("delete", new String[]{"Supprimer", "Delete", "Eliminar"});
+        dict.put("manual_code", new String[]{"Saisie manuelle du code", "Manual Barcode", "Código manual"});
+        dict.put("photo_btn", new String[]{"📷 Photo", "📷 Photo", "📷 Foto"});
+        dict.put("pdf_btn", new String[]{"📄 PDF", "📄 PDF", "📄 PDF"});
+        dict.put("pdf_ok", new String[]{"PDF enregistré avec succès !", "PDF saved successfully!", "¡PDF guardado con éxito!"});
+        dict.put("unknown_prod", new String[]{"Nouveau produit", "New Product", "Nuevo producto"});
+        dict.put("not_in_stock", new String[]{"Ce produit n'est pas dans ce stock !", "Product not in this stock!", "¡Producto no está en este stock!"});
+        dict.put("all_cats", new String[]{"Toutes catégories", "All Categories", "Todas las categorías"});
+        dict.put("uncategorized", new String[]{"Général", "General", "General"});
+        dict.put("new_cat_opt", new String[]{"➕ Créer une nouvelle catégorie...", "➕ Create new category...", "➕ Crear nueva categoría..."});
+        dict.put("new_cat_hint", new String[]{"Nom de la nouvelle catégorie", "New category name", "Nombre de la nueva categoría"});
+        dict.put("new_stock_opt", new String[]{"➕ Créer un nouveau stock...", "➕ Create new stock...", "➕ Crear nuevo stock..."});
+        dict.put("del_stock_opt", new String[]{"🗑️ Supprimer le stock actuel", "🗑️ Delete current stock", "🗑️ Eliminar stock actual"});
+        dict.put("new_stock_title", new String[]{"Nouveau Stock", "New Stock", "Nuevo Stock"});
+        dict.put("new_stock_hint", new String[]{"Ex: Réserve B, Camion...", "Ex: Warehouse B...", "Ej: Almacén B..."});
+        dict.put("options_title", new String[]{"⚙️ Options", "⚙️ Settings", "⚙️ Opciones"});
+        dict.put("opt_lang", new String[]{"Langue de l'application :", "App Language:", "Idioma de la aplicación:"});
+        dict.put("lang_sys", new String[]{"📱 Langue du téléphone", "📱 Phone Language", "📱 Idioma del teléfono"});
+        dict.put("opt_dark", new String[]{"Mode Sombre", "Dark Mode", "Modo Oscuro"});
+        dict.put("opt_prices", new String[]{"Activer la gestion des prix", "Enable product prices", "Activar precios de productos"});
+        dict.put("exit_total_live", new String[]{"Prix total de cette sortie : ", "Total price for this exit: ", "Precio total de esta salida: "});
+        dict.put("exit_banner", new String[]{"💰 Dernière sortie : %1$.2f €  |  Total : %2$.2f €", "💰 Last exit: %1$.2f  |  Total: %2$.2f", "💰 Última salida: %1$.2f €  |  Total: %2$.2f €"});
+
+        String eff = langPref.equals("SYS") ? Locale.getDefault().getLanguage().toLowerCase() : langPref;
+        int idx = eff.startsWith("en") ? 1 : (eff.startsWith("es") ? 2 : 0);
+        return dict.containsKey(key) ? dict.get(key)[idx] : key;
+    }
 
     private void buildMainUI() {
         rootLayout = new LinearLayout(this);
@@ -206,7 +295,6 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         headerLayout.addView(btnPdf, pdfLp);
 
         btnOptions = new Button(this);
-        btnOptions.setText("⚙️ Options");
         btnOptions.setTextSize(12);
         btnOptions.setAllCaps(false);
         btnOptions.setPadding(dp(12), dp(6), dp(12), dp(6));
@@ -343,7 +431,6 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(36), dp(32)));
 
         rootLayout.addView(exitTotalBanner, bannerLp);
-
         setContentView(rootLayout);
     }
 
@@ -351,21 +438,16 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         PopupMenu popup = new PopupMenu(this, anchor);
         for (int i = 0; i < stocksList.size(); i++) {
             String st = stocksList.get(i);
-            String label = st.equals(currentStock) ? "✅ " + st : "📦 " + st;
-            popup.getMenu().add(0, i, i, label);
+            popup.getMenu().add(0, i, i, st.equals(currentStock) ? "✅ " + st : "📦 " + st);
         }
         popup.getMenu().add(1, 998, 998, tr("new_stock_opt"));
-        if (stocksList.size() > 1) {
-            popup.getMenu().add(1, 999, 999, tr("del_stock_opt"));
-        }
+        if (stocksList.size() > 1) popup.getMenu().add(1, 999, 999, tr("del_stock_opt"));
 
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
-            if (id == 998) {
-                showCreateStockDialog();
-            } else if (id == 999) {
-                deleteCurrentStock();
-            } else if (id >= 0 && id < stocksList.size()) {
+            if (id == 998) showCreateStockDialog();
+            else if (id == 999) deleteCurrentStock();
+            else if (id >= 0 && id < stocksList.size()) {
                 currentStock = stocksList.get(id);
                 prefs.edit().putString("currentStock", currentStock).apply();
                 applyThemeAndLang();
@@ -397,9 +479,8 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
 
     private void deleteCurrentStock() {
         if (stocksList.size() <= 1) return;
-        String toDelete = currentStock;
-        inventory.removeIf(p -> toDelete.equals(p.stockName));
-        stocksList.remove(toDelete);
+        inventory.removeIf(p -> currentStock.equals(p.stockName));
+        stocksList.remove(currentStock);
         currentStock = stocksList.get(0);
         saveData();
         applyThemeAndLang();
@@ -415,13 +496,9 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
 
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
-            if (id == -1) {
-                selectedCategoryFilter = "ALL";
-            } else if (id == 999) {
-                showCreateCategoryDialog();
-            } else if (id >= 0 && id < categoriesList.size()) {
-                selectedCategoryFilter = categoriesList.get(id);
-            }
+            if (id == -1) selectedCategoryFilter = "ALL";
+            else if (id == 999) showCreateCategoryDialog();
+            else if (id >= 0 && id < categoriesList.size()) selectedCategoryFilter = categoriesList.get(id);
             applyThemeAndLang();
             return true;
         });
@@ -459,19 +536,11 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         box.addView(langLabel);
 
         Spinner langSpinner = new Spinner(this);
-        String[] langLabels = new String[]{
-                tr("lang_sys"),
-                "🇫🇷 Français",
-                "🇬🇧 English",
-                "🇪🇸 Español"
-        };
-        String[] langCodes = new String[]{"SYS", "FR", "EN", "ES"};
-        ArrayAdapter<String> langAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, langLabels);
-        langSpinner.setAdapter(langAdapter);
+        String[] langLabels = {tr("lang_sys"), "🇫🇷 Français", "🇬🇧 English", "🇪🇸 Español"};
+        String[] langCodes = {"SYS", "FR", "EN", "ES"};
+        langSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, langLabels));
         int curIdx = 0;
-        for (int i = 0; i < langCodes.length; i++) {
-            if (langCodes[i].equals(langPref)) curIdx = i;
-        }
+        for (int i = 0; i < langCodes.length; i++) if (langCodes[i].equals(langPref)) curIdx = i;
         langSpinner.setSelection(curIdx);
         box.addView(langSpinner);
 
@@ -494,13 +563,7 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
                     langPref = langCodes[langSpinner.getSelectedItemPosition()];
                     isDarkMode = darkSwitch.isChecked();
                     usePrices = priceSwitch.isChecked();
-
-                    prefs.edit()
-                            .putString("langPref", langPref)
-                            .putBoolean("darkMode", isDarkMode)
-                            .putBoolean("usePrices", usePrices)
-                            .apply();
-
+                    prefs.edit().putString("langPref", langPref).putBoolean("darkMode", isDarkMode).putBoolean("usePrices", usePrices).apply();
                     applyThemeAndLang();
                 })
                 .setNegativeButton(tr("cancel"), null)
@@ -517,12 +580,10 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         rootLayout.setBackgroundColor(bgColor);
         titleText.setText("📦 " + tr("app_title"));
         titleText.setTextColor(textColor);
-
         btnPdf.setText(tr("pdf_btn"));
         btnOptions.setText(tr("options_title"));
         btnOptions.setTextColor(textColor);
         btnOptions.setBackground(createRoundedBg(cardColor, dp(10)));
-
         btnStockSelector.setText("🏢 " + currentStock + " ▼");
         btnStockSelector.setTextColor(textColor);
         btnStockSelector.setBackground(createRoundedBg(accentCard, dp(10)));
@@ -535,26 +596,20 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         statsCard.setBackground(createRoundedBg(cardColor, dp(12)));
         statsRefsText.setTextColor(textColor);
         statsUnitsText.setTextColor(subTextColor);
-
         btnEntry.setText(tr("btn_in"));
         btnExit.setText(tr("btn_out"));
-
         searchInput.setHint(tr("search"));
         searchInput.setTextColor(textColor);
         searchInput.setHintTextColor(subTextColor);
         searchInput.setBackground(createRoundedBg(cardColor, dp(12)));
-
         emptyText.setText(tr("empty"));
         emptyText.setTextColor(subTextColor);
-
         exitTotalBanner.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(12)));
-
         filterList();
     }
 
     private void updateStats() {
-        int totalRefs = 0;
-        int totalUnits = 0;
+        int totalRefs = 0, totalUnits = 0;
         for (Product p : inventory) {
             if (currentStock.equals(p.stockName)) {
                 totalRefs++;
@@ -563,7 +618,6 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         }
         statsRefsText.setText(tr("refs") + " : " + totalRefs);
         statsUnitsText.setText(tr("units") + " : " + totalUnits);
-
         emptyText.setVisibility(filteredInventory.isEmpty() ? View.VISIBLE : View.GONE);
         listView.setVisibility(filteredInventory.isEmpty() ? View.GONE : View.VISIBLE);
 
@@ -576,13 +630,8 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
     }
 
     private void startBarcodeScan(boolean isEntry) {
-        GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-                .enableAutoZoom()
-                .build();
-
-        GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(this, options);
-        scanner.startScan()
+        GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS).enableAutoZoom().build();
+        GmsBarcodeScanning.getClient(this, options).startScan()
                 .addOnSuccessListener(barcode -> {
                     String rawValue = barcode.getRawValue();
                     if (rawValue != null && !rawValue.isEmpty()) {
@@ -635,30 +684,20 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
     }
 
     private void fetchProductOnline(String barcode) {
-        AlertDialog loadingDialog = new AlertDialog.Builder(this)
-                .setMessage(tr("fetching") + "\n(" + barcode + ")")
-                .setCancelable(false)
-                .create();
+        AlertDialog loadingDialog = new AlertDialog.Builder(this).setMessage(tr("fetching") + "\n(" + barcode + ")").setCancelable(false).create();
         loadingDialog.show();
 
         executor.execute(() -> {
-            String foundName = "";
-            String foundImgBase64 = "";
-
-            String[] apis = new String[]{
-                    "https://world.openfoodfacts.org/api/v2/product/" + barcode + ".json",
-                    "https://world.openproductsfacts.org/api/v2/product/" + barcode + ".json",
-                    "https://world.openbeautyfacts.org/api/v2/product/" + barcode + ".json"
+            String foundName = "", foundImgBase64 = "";
+            String[] apis = {
+                "https://world.openfoodfacts.org/api/v2/product/" + barcode + ".json",
+                "https://world.openproductsfacts.org/api/v2/product/" + barcode + ".json"
             };
-
             for (String apiUrl : apis) {
                 try {
-                    URL url = new URL(apiUrl);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setConnectTimeout(4000);
-                    conn.setReadTimeout(4000);
-                    conn.setRequestProperty("User-Agent", "OptiStock - GoDev - Version 2.0");
-
+                    HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
+                    conn.setConnectTimeout(3000);
+                    conn.setReadTimeout(3000);
                     if (conn.getResponseCode() == 200) {
                         InputStream is = conn.getInputStream();
                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -666,34 +705,18 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
                         int n;
                         while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
                         JSONObject root = new JSONObject(baos.toString("UTF-8"));
-
                         if (root.optInt("status", 0) == 1 && root.has("product")) {
                             JSONObject prod = root.getJSONObject("product");
                             foundName = prod.optString("product_name_fr", "");
                             if (foundName.isEmpty()) foundName = prod.optString("product_name", "");
-                            if (foundName.isEmpty()) foundName = prod.optString("generic_name", "");
-
-                            String brand = prod.optString("brands", "");
-                            if (!brand.isEmpty() && !foundName.toLowerCase().contains(brand.toLowerCase())) {
-                                foundName = foundName.isEmpty() ? brand : foundName + " - " + brand;
-                            }
-
                             String imgUrl = prod.optString("image_front_small_url", "");
-                            if (imgUrl.isEmpty()) imgUrl = prod.optString("image_small_url", "");
-                            if (imgUrl.isEmpty()) imgUrl = prod.optString("image_url", "");
-
-                            if (!imgUrl.isEmpty()) {
-                                foundImgBase64 = downloadImageAsBase64(imgUrl);
-                            }
+                            if (!imgUrl.isEmpty()) foundImgBase64 = downloadImageAsBase64(imgUrl);
                             if (!foundName.isEmpty()) break;
                         }
                     }
                 } catch (Exception ignored) {}
             }
-
-            final String finalName = foundName;
-            final String finalImg = foundImgBase64;
-
+            final String finalName = foundName, finalImg = foundImgBase64;
             mainHandler.post(() -> {
                 loadingDialog.dismiss();
                 Product newProd = new Product();
@@ -711,20 +734,14 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
 
     private String downloadImageAsBase64(String urlStr) {
         try {
-            URL url = new URL(urlStr);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(4000);
-            conn.setReadTimeout(4000);
-            InputStream is = conn.getInputStream();
+            InputStream is = new URL(urlStr).openStream();
             Bitmap bmp = BitmapFactory.decodeStream(is);
-            if (bmp != null) return bitmapToBase64(bmp);
-        } catch (Exception ignored) {}
-        return "";
+            return bmp != null ? bitmapToBase64(bmp) : "";
+        } catch (Exception e) { return ""; }
     }
 
     private void showProductTransactionDialog(Product product, boolean isEntry, boolean isNew) {
         tempPhotoBase64 = product.imageBase64 != null ? product.imageBase64 : "";
-
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -742,9 +759,7 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
             Bitmap b = base64ToBitmap(tempPhotoBase64);
             if (b != null) currentPhotoPreview.setImageBitmap(b);
         }
-        LinearLayout.LayoutParams imgParams = new LinearLayout.LayoutParams(dp(76), dp(76));
-        imgParams.setMargins(0, 0, dp(14), 0);
-        photoRow.addView(currentPhotoPreview, imgParams);
+        photoRow.addView(currentPhotoPreview, new LinearLayout.LayoutParams(dp(76), dp(76)){{setMargins(0,0,dp(14),0);}});
 
         LinearLayout codeAndCam = new LinearLayout(this);
         codeAndCam.setOrientation(LinearLayout.VERTICAL);
@@ -757,8 +772,7 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         btnCam.setText(tr("photo_btn"));
         btnCam.setAllCaps(false);
         btnCam.setOnClickListener(v -> {
-            Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-            try { startActivityForResult(takePictureIntent, REQ_TAKE_PHOTO); } catch (Exception ignored) {}
+            try { startActivityForResult(new Intent(MediaStore.ACTION_IMAGE_CAPTURE), REQ_TAKE_PHOTO); } catch (Exception ignored) {}
         });
         codeAndCam.addView(btnCam);
         photoRow.addView(codeAndCam);
@@ -778,9 +792,7 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         Spinner catSpinner = new Spinner(this);
         List<String> spinnerCats = new ArrayList<>(categoriesList);
         spinnerCats.add(tr("new_cat_opt"));
-        ArrayAdapter<String> catAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, spinnerCats);
-        catSpinner.setAdapter(catAdapter);
-
+        catSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, spinnerCats));
         int catIndex = categoriesList.indexOf(product.category);
         if (catIndex >= 0) catSpinner.setSelection(catIndex);
 
@@ -789,18 +801,11 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         newCatInput.setVisibility(View.GONE);
 
         catSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (position == spinnerCats.size() - 1) {
-                    newCatInput.setVisibility(View.VISIBLE);
-                    newCatInput.requestFocus();
-                } else {
-                    newCatInput.setVisibility(View.GONE);
-                }
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                newCatInput.setVisibility(position == spinnerCats.size() - 1 ? View.VISIBLE : View.GONE);
             }
             @Override public void onNothingSelected(AdapterView<?> parent) {}
         });
-
         box.addView(catSpinner);
         box.addView(newCatInput);
 
@@ -848,27 +853,22 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
                 return;
             }
             liveExitTotalTv.setVisibility(View.VISIBLE);
-            int q = 1;
-            double pr = product.price;
+            int q = 1; double pr = product.price;
             try { q = Integer.parseInt(qtyInput.getText().toString().trim()); } catch (Exception ignored) {}
             try { pr = Double.parseDouble(priceInput.getText().toString().trim().replace(",", ".")); } catch (Exception ignored) {}
-            double tot = Math.max(0, q) * Math.max(0, pr);
-            liveExitTotalTv.setText(tr("exit_total_live") + String.format(Locale.getDefault(), "%.2f €", tot));
+            liveExitTotalTv.setText(tr("exit_total_live") + String.format(Locale.getDefault(), "%.2f €", Math.max(0, q) * Math.max(0, pr)));
         };
 
         LinearLayout quickBtns = new LinearLayout(this);
         quickBtns.setOrientation(LinearLayout.HORIZONTAL);
-        int[] steps = new int[]{-1, 1, 5, 10, 50};
-        for (int step : steps) {
+        for (int step : new int[]{-1, 1, 5, 10, 50}) {
             Button b = new Button(this);
             b.setText(step > 0 ? "+" + step : String.valueOf(step));
             b.setTextSize(12);
-            b.setPadding(0, 0, 0, 0);
             b.setOnClickListener(v -> {
                 int cur = 1;
                 try { cur = Integer.parseInt(qtyInput.getText().toString().trim()); } catch (Exception ignored) {}
-                int next = Math.max(1, cur + step);
-                qtyInput.setText(String.valueOf(next));
+                qtyInput.setText(String.valueOf(Math.max(1, cur + step)));
                 updateLiveTotal.run();
             });
             quickBtns.addView(b, new LinearLayout.LayoutParams(0, dp(38), 1f));
@@ -888,10 +888,8 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         });
         updateLiveTotal.run();
 
-        String dialogTitle = isEntry ? "🟢 " + tr("entry_title") : "🔴 " + tr("exit_title");
-
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle(dialogTitle)
+                .setTitle(isEntry ? "🟢 " + tr("entry_title") : "🔴 " + tr("exit_title"))
                 .setView(scroll)
                 .setPositiveButton(tr("save"), (d, w) -> {
                     String enteredName = nameInput.getText().toString().trim();
@@ -901,21 +899,15 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
                     if (catSpinner.getSelectedItemPosition() == spinnerCats.size() - 1) {
                         chosenCat = newCatInput.getText().toString().trim();
                         if (chosenCat.isEmpty()) chosenCat = tr("uncategorized");
-                        if (!categoriesList.contains(chosenCat)) {
-                            categoriesList.add(chosenCat);
-                        }
+                        if (!categoriesList.contains(chosenCat)) categoriesList.add(chosenCat);
                     } else {
                         chosenCat = spinnerCats.get(catSpinner.getSelectedItemPosition());
                     }
 
                     int delta = 1;
                     try { delta = Integer.parseInt(qtyInput.getText().toString().trim()); } catch (Exception ignored) {}
-                    if (delta < 0) delta = 0;
-
                     if (usePrices) {
-                        try {
-                            product.price = Double.parseDouble(priceInput.getText().toString().trim().replace(",", "."));
-                        } catch (Exception ignored) {}
+                        try { product.price = Double.parseDouble(priceInput.getText().toString().trim().replace(",", ".")); } catch (Exception ignored) {}
                     }
 
                     product.name = enteredName;
@@ -924,19 +916,16 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
                     product.stockName = currentStock;
 
                     if (isEntry) {
-                        product.quantity += delta;
-                        if (isNew && findProductInCurrentStock(product.barcode) == null) {
-                            inventory.add(0, product);
-                        }
+                        product.quantity += Math.max(0, delta);
+                        if (isNew && findProductInCurrentStock(product.barcode) == null) inventory.add(0, product);
                     } else {
-                        int actualRemoved = Math.min(product.quantity, delta);
+                        int actualRemoved = Math.min(product.quantity, Math.max(0, delta));
                         product.quantity = Math.max(0, product.quantity - delta);
                         if (usePrices) {
                             lastExitTotal = actualRemoved * product.price;
                             sessionExitTotal += lastExitTotal;
                         }
                     }
-
                     saveData();
                     applyThemeAndLang();
                 })
@@ -949,7 +938,6 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
                 filterList();
             });
         }
-
         builder.show();
     }
 
@@ -961,7 +949,6 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
             Product p = filteredInventory.get(position);
-
             int cardColor = isDarkMode ? Color.parseColor("#1E293B") : Color.parseColor("#FFFFFF");
             int textColor = isDarkMode ? Color.parseColor("#F8FAFC") : Color.parseColor("#0F172A");
             int subTextColor = isDarkMode ? Color.parseColor("#94A3B8") : Color.parseColor("#64748B");
@@ -979,9 +966,7 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
                 Bitmap b = base64ToBitmap(p.imageBase64);
                 if (b != null) img.setImageBitmap(b);
             }
-            LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(54), dp(54));
-            imgLp.setMargins(0, 0, dp(12), 0);
-            card.addView(img, imgLp);
+            card.addView(img, new LinearLayout.LayoutParams(dp(54), dp(54)){{setMargins(0,0,dp(12),0);}});
 
             LinearLayout info = new LinearLayout(MainActivity.this);
             info.setOrientation(LinearLayout.VERTICAL);
@@ -993,9 +978,7 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
             nameTv.setTextColor(textColor);
 
             String meta = "📁 " + (p.category != null ? p.category : tr("uncategorized")) + "  •  🏷️ " + p.barcode;
-            if (usePrices && p.price > 0) {
-                meta += String.format(Locale.getDefault(), "\n💶 %.2f € / u", p.price);
-            }
+            if (usePrices && p.price > 0) meta += String.format(Locale.getDefault(), "\n💶 %.2f € / u", p.price);
             TextView codeTv = new TextView(MainActivity.this);
             codeTv.setText(meta);
             codeTv.setTextSize(12);
@@ -1011,8 +994,7 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
             badge.setTypeface(null, Typeface.BOLD);
             badge.setTextColor(Color.WHITE);
             badge.setGravity(Gravity.CENTER);
-            int badgeColor = p.quantity == 0 ? Color.parseColor("#EF4444")
-                    : (p.quantity <= 3 ? Color.parseColor("#F59E0B") : Color.parseColor("#10B981"));
+            int badgeColor = p.quantity == 0 ? Color.parseColor("#EF4444") : (p.quantity <= 3 ? Color.parseColor("#F59E0B") : Color.parseColor("#10B981"));
             badge.setBackground(createRoundedBg(badgeColor, dp(10)));
             badge.setPadding(dp(14), dp(8), dp(14), dp(8));
             card.addView(badge);
@@ -1027,11 +1009,7 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         for (Product p : inventory) {
             if (!currentStock.equals(p.stockName)) continue;
             if (!selectedCategoryFilter.equals("ALL") && !selectedCategoryFilter.equals(p.category)) continue;
-
-            if (searchQuery.isEmpty()
-                    || p.name.toLowerCase().contains(searchQuery)
-                    || p.barcode.toLowerCase().contains(searchQuery)
-                    || (p.category != null && p.category.toLowerCase().contains(searchQuery))) {
+            if (searchQuery.isEmpty() || p.name.toLowerCase().contains(searchQuery) || p.barcode.toLowerCase().contains(searchQuery) || (p.category != null && p.category.toLowerCase().contains(searchQuery))) {
                 filteredInventory.add(p);
             }
         }
@@ -1040,25 +1018,20 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
     }
 
     private Product findProductInCurrentStock(String barcode) {
-        for (Product p : inventory) {
-            if (p.barcode.equals(barcode) && currentStock.equals(p.stockName)) return p;
-        }
+        for (Product p : inventory) if (p.barcode.equals(barcode) && currentStock.equals(p.stockName)) return p;
         return null;
     }
 
     private Product findProductAnywhere(String barcode) {
-        for (Product p : inventory) {
-            if (p.barcode.equals(barcode)) return p;
-        }
+        for (Product p : inventory) if (p.barcode.equals(barcode)) return p;
         return null;
     }
 
     private void startPdfExport() {
-        String dateStr = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("application/pdf");
-        intent.putExtra(Intent.EXTRA_TITLE, "OptiStock_" + currentStock.replaceAll("\\s+", "_") + "_" + dateStr + ".pdf");
+        intent.putExtra(Intent.EXTRA_TITLE, "OptiStock_" + currentStock.replaceAll("\\s+", "_") + "_" + new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date()) + ".pdf");
         startActivityForResult(intent, REQ_CREATE_PDF);
     }
 
@@ -1066,32 +1039,17 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
         try {
             PdfDocument pdf = new PdfDocument();
             Paint paint = new Paint();
-            Paint linePaint = new Paint();
-            linePaint.setColor(Color.LTGRAY);
-            linePaint.setStrokeWidth(1f);
-
-            int pageWidth = 595;
-            int pageHeight = 842;
-            int pageNumber = 1;
-            int y = 55;
-
+            Paint linePaint = new Paint() {{ setColor(Color.LTGRAY); setStrokeWidth(1f); }};
+            int pageWidth = 595, pageHeight = 842, pageNumber = 1, y = 55;
             PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
             PdfDocument.Page page = pdf.startPage(pageInfo);
             Canvas canvas = page.getCanvas();
 
-            paint.setTextSize(18f);
-            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-            paint.setColor(Color.rgb(15, 23, 42));
+            paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
             canvas.drawText("OptiStock - " + currentStock, 40, y, paint);
-
-            paint.setTextSize(10f);
-            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
-            String dateFull = new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date());
-            canvas.drawText("Date : " + dateFull + "  |  Développé par GoDev", 40, y + 18, paint);
-            y += 38;
-
-            canvas.drawLine(40, y, 555, y, linePaint);
-            y += 18;
+            paint.setTextSize(10f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+            canvas.drawText("Date : " + new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date()) + "  |  Développé par GoDev", 40, y + 18, paint);
+            y += 38; canvas.drawLine(40, y, 555, y, linePaint); y += 18;
 
             paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
             canvas.drawText("Photo", 40, y, paint);
@@ -1099,13 +1057,10 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
             canvas.drawText("Catégorie", 285, y, paint);
             if (usePrices) canvas.drawText("Prix", 420, y, paint);
             canvas.drawText("Qté", 510, y, paint);
-            y += 8;
-            canvas.drawLine(40, y, 555, y, linePaint);
-            y += 14;
+            y += 8; canvas.drawLine(40, y, 555, y, linePaint); y += 14;
 
             paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
             double totalStockValue = 0.0;
-
             for (Product p : filteredInventory) {
                 if (y > 760) {
                     pdf.finishPage(page);
@@ -1115,49 +1070,29 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
                     canvas = page.getCanvas();
                     y = 50;
                 }
-
                 if (p.imageBase64 != null && !p.imageBase64.isEmpty()) {
                     Bitmap b = base64ToBitmap(p.imageBase64);
-                    if (b != null) {
-                        Bitmap scaled = Bitmap.createScaledBitmap(b, 32, 32, true);
-                        canvas.drawBitmap(scaled, 40, y - 8, null);
-                    }
+                    if (b != null) canvas.drawBitmap(Bitmap.createScaledBitmap(b, 32, 32, true), 40, y - 8, null);
                 }
-
-                String displayName = p.name.length() > 30 ? p.name.substring(0, 27) + "..." : p.name;
-                String displayCat = (p.category != null ? p.category : "");
-                if (displayCat.length() > 18) displayCat = displayCat.substring(0, 15) + "...";
-
-                paint.setColor(Color.BLACK);
-                canvas.drawText(displayName, 85, y + 10, paint);
-                canvas.drawText(displayCat, 285, y + 10, paint);
-
+                canvas.drawText(p.name.length() > 30 ? p.name.substring(0, 27) + "..." : p.name, 85, y + 10, paint);
+                canvas.drawText((p.category != null ? p.category : "").length() > 18 ? p.category.substring(0, 15) + "..." : p.category, 285, y + 10, paint);
                 if (usePrices) {
                     canvas.drawText(String.format(Locale.getDefault(), "%.2f €", p.price), 420, y + 10, paint);
                     totalStockValue += p.price * p.quantity;
                 }
-
                 paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
                 canvas.drawText(String.valueOf(p.quantity), 510, y + 10, paint);
                 paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
-
-                y += 34;
-                canvas.drawLine(40, y - 6, 555, y - 6, linePaint);
+                y += 34; canvas.drawLine(40, y - 6, 555, y - 6, linePaint);
             }
-
             if (usePrices) {
                 y += 16;
                 paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
                 canvas.drawText(String.format(Locale.getDefault(), "Valeur totale du stock : %.2f €", totalStockValue), 350, y, paint);
             }
-
             pdf.finishPage(page);
-
             OutputStream os = getContentResolver().openOutputStream(uri);
-            if (os != null) {
-                pdf.writeTo(os);
-                os.close();
-            }
+            if (os != null) { pdf.writeTo(os); os.close(); }
             pdf.close();
             Toast.makeText(this, tr("pdf_ok"), Toast.LENGTH_LONG).show();
         } catch (Exception e) {
@@ -1169,10 +1104,8 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != Activity.RESULT_OK || data == null) return;
-
-        if (requestCode == REQ_CREATE_PDF && data.getData() != null) {
-            generatePdfToUri(data.getData());
-        } else if (requestCode == REQ_TAKE_PHOTO && data.getExtras() != null) {
+        if (requestCode == REQ_CREATE_PDF && data.getData() != null) generatePdfToUri(data.getData());
+        else if (requestCode == REQ_TAKE_PHOTO && data.getExtras() != null) {
             Bitmap photo = (Bitmap) data.getExtras().get("data");
             if (photo != null) {
                 tempPhotoBase64 = bitmapToBase64(photo);
@@ -1186,28 +1119,16 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
             JSONArray prodArr = new JSONArray();
             for (Product p : inventory) {
                 JSONObject o = new JSONObject();
-                o.put("barcode", p.barcode);
-                o.put("name", p.name);
-                o.put("quantity", p.quantity);
+                o.put("barcode", p.barcode); o.put("name", p.name); o.put("quantity", p.quantity);
                 o.put("imageBase64", p.imageBase64 != null ? p.imageBase64 : "");
                 o.put("stockName", p.stockName != null ? p.stockName : currentStock);
                 o.put("category", p.category != null ? p.category : tr("uncategorized"));
                 o.put("price", p.price);
                 prodArr.put(o);
             }
-
-            JSONArray stArr = new JSONArray();
-            for (String s : stocksList) stArr.put(s);
-
-            JSONArray catArr = new JSONArray();
-            for (String c : categoriesList) catArr.put(c);
-
-            prefs.edit()
-                    .putString("inventory_json", prodArr.toString())
-                    .putString("stocks_json", stArr.toString())
-                    .putString("cats_json", catArr.toString())
-                    .putString("currentStock", currentStock)
-                    .apply();
+            JSONArray stArr = new JSONArray(); for (String s : stocksList) stArr.put(s);
+            JSONArray catArr = new JSONArray(); for (String c : categoriesList) catArr.put(c);
+            prefs.edit().putString("inventory_json", prodArr.toString()).putString("stocks_json", stArr.toString()).putString("cats_json", catArr.toString()).putString("currentStock", currentStock).apply();
         } catch (Exception ignored) {}
     }
 
@@ -1217,9 +1138,7 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
             JSONArray stArr = new JSONArray(prefs.getString("stocks_json", "[]"));
             for (int i = 0; i < stArr.length(); i++) stocksList.add(stArr.getString(i));
         } catch (Exception ignored) {}
-        if (stocksList.isEmpty()) {
-            stocksList.add("Stock Principal");
-        }
+        if (stocksList.isEmpty()) stocksList.add("Stock Principal");
         currentStock = prefs.getString("currentStock", stocksList.get(0));
         if (!stocksList.contains(currentStock)) currentStock = stocksList.get(0);
 
@@ -1258,18 +1177,14 @@ cat << 'EOF' >> app/src/main/java/com/godev/optistock/MainActivity.java
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             scaled.compress(Bitmap.CompressFormat.JPEG, 75, baos);
             return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
-        } catch (Exception e) {
-            return "";
-        }
+        } catch (Exception e) { return ""; }
     }
 
     private Bitmap base64ToBitmap(String b64) {
         try {
             byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
             return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-        } catch (Exception e) {
-            return null;
-        }
+        } catch (Exception e) { return null; }
     }
 
     private GradientDrawable createRoundedBg(int color, int radiusPx) {
