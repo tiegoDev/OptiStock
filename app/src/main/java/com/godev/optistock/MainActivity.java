@@ -126,8 +126,8 @@ public class MainActivity extends AppCompatActivity {
         splashRoot.setOrientation(LinearLayout.VERTICAL);
         splashRoot.setGravity(Gravity.CENTER_HORIZONTAL);
         splashRoot.setBackgroundColor(Color.parseColor("#040B1C"));
-        splashRoot.setPadding(dp(24), dp(36), dp(24), dp(24));
-        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.4f));
+        splashRoot.setPadding(dp(20), dp(32), dp(20), dp(24));
+        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.3f));
 
         ImageView logoView = new ImageView(this);
         logoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -138,7 +138,7 @@ public class MainActivity extends AppCompatActivity {
             logoView.setImageResource(android.R.drawable.ic_menu_gallery);
         }
 
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(280), dp(280));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(300), dp(300));
         logoLp.gravity = Gravity.CENTER;
         splashRoot.addView(logoView, logoLp);
 
@@ -147,7 +147,7 @@ public class MainActivity extends AppCompatActivity {
         laserLp.setMargins(dp(16), dp(24), dp(16), dp(16));
         splashRoot.addView(laserView, laserLp);
 
-        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.8f));
+        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.7f));
 
         TextView footerTv = new TextView(this);
         footerTv.setText("Développé par GoDev");
@@ -644,7 +644,6 @@ public class MainActivity extends AppCompatActivity {
     private void startBarcodeScan(boolean isEntry) {
         GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
                 .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-                .enableAutoZoom()
                 .build();
         GmsBarcodeScanning.getClient(this, options).startScan()
                 .addOnSuccessListener(barcode -> {
