@@ -58,9 +58,12 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
@@ -73,6 +76,9 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
+
 @SuppressWarnings("deprecation")
 public class MainActivity extends AppCompatActivity {
 
@@ -82,10 +88,18 @@ public class MainActivity extends AppCompatActivity {
         double price;
     }
 
+    static class ReceiptItem {
+        String barcode, name;
+        int quantity;
+        double unitPrice;
+    }
+
     private final List<Product> inventory = new ArrayList<>();
     private final List<Product> filteredInventory = new ArrayList<>();
     private final List<String> stocksList = new ArrayList<>();
     private final List<String> categoriesList = new ArrayList<>();
+    private final List<ReceiptItem> currentReceipt = new ArrayList<>();
+    private final List<String> clientEmails = new ArrayList<>();
 
     private String currentStock = "";
     private String selectedCategoryFilter = "ALL";
@@ -96,6 +110,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean usePrices = false;
     private String langPref = "SYS";
     private String searchQuery = "";
+    private String senderEmail = "";
+    private String senderAppPass = "";
+    private String shopName = "OptiStock";
     private double lastExitTotal = 0.0;
     private double sessionExitTotal = 0.0;
 
@@ -111,7 +128,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView titleText, statsRefsValue, statsRefsLabel, statsUnitsValue, statsUnitsLabel, emptyText, exitTotalText;
     private ImageView headerLogo, emptyLogo;
     private EditText searchInput;
-    private Button btnEntry, btnExit, btnPdf, btnOptions, btnStockSelector, btnCatFilter;
+    private Button btnEntry, btnExit, btnPdf, btnOptions, btnStockSelector, btnCatFilter, btnOpenReceipt;
     private ListView listView;
 
     @Override
@@ -121,6 +138,9 @@ public class MainActivity extends AppCompatActivity {
         isDarkMode = prefs.getBoolean("darkMode", true);
         usePrices = prefs.getBoolean("usePrices", false);
         langPref = prefs.getString("langPref", "SYS");
+        senderEmail = prefs.getString("senderEmail", "");
+        senderAppPass = prefs.getString("senderAppPass", "");
+        shopName = prefs.getString("shopName", "OptiStock");
         loadData();
         showSplashScreen();
     }
@@ -276,9 +296,20 @@ public class MainActivity extends AppCompatActivity {
         dict.put("opt_lang", new String[]{"Langue de l'application :", "App Language:", "Idioma de la aplicación:"});
         dict.put("lang_sys", new String[]{"📱 Langue du téléphone", "📱 Phone Language", "📱 Idioma del teléfono"});
         dict.put("opt_dark", new String[]{"Mode Sombre (Cyber-Logistique)", "Dark Mode (Cyber-Logistics)", "Modo Oscuro (Ciber-Logística)"});
-        dict.put("opt_prices", new String[]{"Activer la gestion des prix", "Enable product prices", "Activar precios de productos"});
+        dict.put("opt_prices", new String[]{"Activer la gestion des prix & Ticket", "Enable prices & Receipt", "Activar precios y Ticket"});
         dict.put("exit_total_live", new String[]{"Prix total de cette sortie : ", "Total price for this exit: ", "Precio total de esta salida: "});
-        dict.put("exit_banner", new String[]{"💰 Sortie : %1$.2f €  |  Cumul : %2$.2f €", "💰 Exit: %1$.2f  |  Total: %2$.2f", "💰 Salida: %1$.2f €  |  Total: %2$.2f €"});
+        dict.put("exit_banner", new String[]{"🧾 Ticket (%1$d art.) : %2$.2f €", "🧾 Receipt (%1$d it.) : %2$.2f", "🧾 Ticket (%1$d art.) : %2$.2f €"});
+        dict.put("btn_receipt_view", new String[]{"📧 Ticket / Mail", "📧 Receipt / Mail", "📧 Ticket / Mail"});
+        dict.put("receipt_title", new String[]{"🧾 Ticket de Caisse", "🧾 Sales Receipt", "🧾 Ticket de Caja"});
+        dict.put("client_search_hint", new String[]{"🔍 Chercher ou saisir l'e-mail du client...", "🔍 Search or type customer email...", "🔍 Buscar o escribir email del cliente..."});
+        dict.put("send_email_btn", new String[]{"📧 Envoyer le ticket au client", "📧 Send receipt to customer", "📧 Enviar ticket al cliente"});
+        dict.put("clear_receipt_btn", new String[]{"🗑️ Nouveau ticket (Vider)", "🗑️ New receipt (Clear)", "🗑️ Nuevo ticket (Vaciar)"});
+        dict.put("opt_shop_name", new String[]{"Nom de la boutique / Entreprise :", "Shop / Company Name:", "Nombre de la tienda / Empresa:"});
+        dict.put("opt_sender_email", new String[]{"Mon adresse e-mail liée (Expéditeur) :", "My linked email address (Sender):", "Mi correo vinculado (Remitente):"});
+        dict.put("opt_sender_pass", new String[]{"Clé / Mot de passe d'appli SMTP (Optionnel, pour envoi direct sans ouvrir l'appli mail) :", "SMTP App Password (Optional, for silent background sending):", "Contraseña de app SMTP (Opcional, para envío directo):"});
+        dict.put("email_sent_ok", new String[]{"✅ Ticket envoyé automatiquement au client !", "✅ Receipt automatically sent to customer!", "✅ ¡Ticket enviado automáticamente al cliente!"});
+        dict.put("email_invalid", new String[]{"Veuillez saisir une adresse e-mail client valide.", "Please enter a valid customer email.", "Ingrese un correo electrónico válido."});
+        dict.put("saved_clients_label", new String[]{"👥 Registre clients (touchez pour sélectionner) :", "👥 Customer registry (tap to select):", "👥 Registro de clientes (toque para elegir):"});
 
         String eff = langPref.equals("SYS") ? Locale.getDefault().getLanguage().toLowerCase() : langPref;
         int idx = eff.startsWith("en") ? 1 : (eff.startsWith("es") ? 2 : 0);
@@ -290,7 +321,6 @@ public class MainActivity extends AppCompatActivity {
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setPadding(dp(14), dp(12), dp(14), dp(12));
 
-        // 1. EN-TÊTE AVEC VRAI LOGO EN HAUT À GAUCHE + TITRE BICOLORE
         headerLayout = new LinearLayout(this);
         headerLayout.setOrientation(LinearLayout.HORIZONTAL);
         headerLayout.setGravity(Gravity.CENTER_VERTICAL);
@@ -327,7 +357,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(headerLayout);
 
-        // 2. SÉLECTEURS DE STOCK ET DE CATÉGORIE
         subHeaderLayout = new LinearLayout(this);
         subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -355,7 +384,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(subHeaderLayout, subLp);
 
-        // 3. COMPTEURS FAÇON DASHBOARD (2 CARTES KPI CÔTE À CÔTE)
         LinearLayout statsRow = new LinearLayout(this);
         statsRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams statsRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -395,7 +423,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(statsRow, statsRowLp);
 
-        // 4. BARRE DE RECHERCHE
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
         searchInput.setTextSize(14);
@@ -412,7 +439,6 @@ public class MainActivity extends AppCompatActivity {
         searchParams.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(searchInput, searchParams);
 
-        // 5. ZONE CENTRALE : ÉCRAN VIDE ILLUSTRÉ EN FILIGRANE OU LISTE DES PRODUITS
         emptyContainer = new LinearLayout(this);
         emptyContainer.setOrientation(LinearLayout.VERTICAL);
         emptyContainer.setGravity(Gravity.CENTER);
@@ -438,11 +464,11 @@ public class MainActivity extends AppCompatActivity {
         listView.setAdapter(adapter);
         rootLayout.addView(listView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // 6. BANDEAU DE CUMUL DES SORTIES (AU-DESSUS DES BOUTONS DU BAS)
+        // BANDEAU DU TICKET DE CAISSE EN COURS
         exitTotalBanner = new LinearLayout(this);
         exitTotalBanner.setOrientation(LinearLayout.HORIZONTAL);
         exitTotalBanner.setGravity(Gravity.CENTER_VERTICAL);
-        exitTotalBanner.setPadding(dp(14), dp(8), dp(14), dp(8));
+        exitTotalBanner.setPadding(dp(12), dp(8), dp(10), dp(8));
         LinearLayout.LayoutParams bannerLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         bannerLp.setMargins(0, dp(6), 0, dp(4));
 
@@ -450,21 +476,36 @@ public class MainActivity extends AppCompatActivity {
         exitTotalText.setTextColor(Color.WHITE);
         exitTotalText.setTextSize(13);
         exitTotalText.setTypeface(null, Typeface.BOLD);
+        exitTotalText.setOnClickListener(v -> showReceiptDialog());
         exitTotalBanner.addView(exitTotalText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        btnOpenReceipt = new Button(this);
+        btnOpenReceipt.setAllCaps(false);
+        btnOpenReceipt.setTextSize(12);
+        btnOpenReceipt.setTypeface(null, Typeface.BOLD);
+        btnOpenReceipt.setTextColor(Color.WHITE);
+        btnOpenReceipt.setPadding(dp(10), dp(4), dp(10), dp(4));
+        btnOpenReceipt.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(8), dp(1), Color.parseColor("#38BDF8")));
+        btnOpenReceipt.setOnClickListener(v -> showReceiptDialog());
+        LinearLayout.LayoutParams openRecLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32));
+        openRecLp.setMargins(dp(6), 0, dp(6), 0);
+        exitTotalBanner.addView(btnOpenReceipt, openRecLp);
 
         Button btnResetTotal = new Button(this);
         btnResetTotal.setText("↺");
         btnResetTotal.setTextColor(Color.WHITE);
-        btnResetTotal.setBackground(createRoundedBg(Color.parseColor("#991B1B"), dp(8), dp(1), Color.parseColor("#F87171")));
+        btnResetTotal.setBackground(createRoundedBg(Color.parseColor("#7F1D1D"), dp(8), dp(1), Color.parseColor("#F87171")));
         btnResetTotal.setOnClickListener(v -> {
+            currentReceipt.clear();
             lastExitTotal = 0.0;
             sessionExitTotal = 0.0;
+            saveData();
             updateStats();
         });
-        exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(36), dp(30)));
+        exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(34), dp(32)));
         rootLayout.addView(exitTotalBanner, bannerLp);
 
-        // 7. BARRE D'ACTIONS FIXE TOUT EN BAS SOUS LE POUCE (+ ENTRÉE / - SORTIE)
+        // BARRE D'ACTIONS EN BAS SOUS LE POUCE
         bottomBarLayout = new LinearLayout(this);
         bottomBarLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -506,7 +547,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.setBackgroundColor(bgColor);
 
-        // Titre bicolore "Opti" (blanc/foncé) + "Stock" (bleu cyan)
         SpannableString styledTitle = new SpannableString("OptiStock");
         styledTitle.setSpan(new ForegroundColorSpan(textColor), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         styledTitle.setSpan(new ForegroundColorSpan(cyanHighlight), 4, 9, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -541,6 +581,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnEntry.setText(tr("btn_in"));
         btnExit.setText(tr("btn_out"));
+        btnOpenReceipt.setText(tr("btn_receipt_view"));
 
         searchInput.setHint(tr("search"));
         searchInput.setTextColor(textColor);
@@ -550,7 +591,7 @@ public class MainActivity extends AppCompatActivity {
         emptyText.setText(tr("empty"));
         emptyText.setTextColor(subTextColor);
 
-        exitTotalBanner.setBackground(createRoundedBg(Color.parseColor("#991B1B"), dp(12), dp(1), Color.parseColor("#F87171")));
+        exitTotalBanner.setBackground(createRoundedBg(Color.parseColor("#1E293B"), dp(12), dp(1), Color.parseColor("#38BDF8")));
         filterList();
     }
 
@@ -568,11 +609,281 @@ public class MainActivity extends AppCompatActivity {
         emptyContainer.setVisibility(filteredInventory.isEmpty() ? View.VISIBLE : View.GONE);
         listView.setVisibility(filteredInventory.isEmpty() ? View.GONE : View.VISIBLE);
 
-        if (usePrices && (lastExitTotal > 0 || sessionExitTotal > 0)) {
+        int receiptCount = 0;
+        double receiptSum = 0.0;
+        for (ReceiptItem item : currentReceipt) {
+            receiptCount += item.quantity;
+            receiptSum += item.quantity * item.unitPrice;
+        }
+        sessionExitTotal = receiptSum;
+
+        if (usePrices && (!currentReceipt.isEmpty() || sessionExitTotal > 0)) {
             exitTotalBanner.setVisibility(View.VISIBLE);
-            exitTotalText.setText(String.format(Locale.getDefault(), tr("exit_banner"), lastExitTotal, sessionExitTotal));
+            exitTotalText.setText(String.format(Locale.getDefault(), tr("exit_banner"), receiptCount, sessionExitTotal));
         } else {
             exitTotalBanner.setVisibility(View.GONE);
+        }
+    }
+
+    private String buildReceiptText() {
+        StringBuilder sb = new StringBuilder();
+        String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
+        sb.append("================================\n");
+        sb.append("      ").append(title).append("\n");
+        if (senderEmail != null && !senderEmail.isEmpty()) {
+            sb.append("  ").append(senderEmail).append("\n");
+        }
+        sb.append("  Date : ").append(new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date())).append("\n");
+        sb.append("  Stock : ").append(currentStock).append("\n");
+        sb.append("================================\n\n");
+
+        double grandTotal = 0.0;
+        int totalQty = 0;
+        for (ReceiptItem item : currentReceipt) {
+            double lineTotal = item.quantity * item.unitPrice;
+            grandTotal += lineTotal;
+            totalQty += item.quantity;
+            String pName = item.name != null ? item.name : item.barcode;
+            if (pName.length() > 22) pName = pName.substring(0, 20) + "..";
+            sb.append(String.format(Locale.getDefault(), "• %s\n", pName));
+            sb.append(String.format(Locale.getDefault(), "  %d x %.2f €  =  %.2f €\n", item.quantity, item.unitPrice, lineTotal));
+        }
+
+        sb.append("\n--------------------------------\n");
+        sb.append(String.format(Locale.getDefault(), "ARTICLES SORTIS : %d\n", totalQty));
+        sb.append(String.format(Locale.getDefault(), "TOTAL À PAYER   : %.2f €\n", grandTotal));
+        sb.append("================================\n");
+        sb.append("   Merci de votre confiance !\n");
+        return sb.toString();
+    }
+
+    private void showReceiptDialog() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(14), dp(18), dp(14));
+        scroll.addView(box);
+
+        // Affichage visuel façon Ticket de caisse papier
+        TextView ticketView = new TextView(this);
+        ticketView.setText(buildReceiptText());
+        ticketView.setTypeface(Typeface.MONOSPACE);
+        ticketView.setTextSize(12);
+        ticketView.setTextColor(Color.parseColor("#0F172A"));
+        ticketView.setBackground(createRoundedBg(Color.parseColor("#F8FAFC"), dp(10), dp(1), Color.parseColor("#CBD5E1")));
+        ticketView.setPadding(dp(14), dp(14), dp(14), dp(14));
+        box.addView(ticketView);
+
+        // Info compte expéditeur lié
+        TextView senderInfoTv = new TextView(this);
+        String senderStatus = senderEmail.isEmpty()
+                ? "⚠️ Aucun e-mail expéditeur lié (configurable dans ⚙️ Options)"
+                : "📤 Expéditeur lié : " + senderEmail + (!senderAppPass.isEmpty() ? " (Envoi auto activé)" : "");
+        senderInfoTv.setText(senderStatus);
+        senderInfoTv.setTextSize(11);
+        senderInfoTv.setTextColor(Color.parseColor("#38BDF8"));
+        senderInfoTv.setPadding(0, dp(10), 0, dp(6));
+        box.addView(senderInfoTv);
+
+        // Barre de saisie / Recherche rapide dans le registre clients
+        EditText emailInput = new EditText(this);
+        emailInput.setHint(tr("client_search_hint"));
+        emailInput.setInputType(InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        emailInput.setSingleLine(true);
+        emailInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        box.addView(emailInput);
+
+        TextView savedLabel = new TextView(this);
+        savedLabel.setText(tr("saved_clients_label"));
+        savedLabel.setTextSize(12);
+        savedLabel.setTypeface(null, Typeface.BOLD);
+        savedLabel.setPadding(0, dp(8), 0, dp(4));
+        box.addView(savedLabel);
+
+        LinearLayout clientsListContainer = new LinearLayout(this);
+        clientsListContainer.setOrientation(LinearLayout.VERTICAL);
+        box.addView(clientsListContainer);
+
+        Runnable refreshClientSuggestions = new Runnable() {
+            @Override
+            public void run() {
+                clientsListContainer.removeAllViews();
+                String q = emailInput.getText().toString().trim().toLowerCase();
+                int shown = 0;
+                for (int i = 0; i < clientEmails.size(); i++) {
+                    final String savedMail = clientEmails.get(i);
+                    if (q.isEmpty() || savedMail.toLowerCase().contains(q)) {
+                        LinearLayout row = new LinearLayout(MainActivity.this);
+                        row.setOrientation(LinearLayout.HORIZONTAL);
+                        row.setGravity(Gravity.CENTER_VERTICAL);
+                        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                        rowLp.setMargins(0, dp(2), 0, dp(2));
+
+                        Button selectBtn = new Button(MainActivity.this);
+                        selectBtn.setText("👤 " + savedMail);
+                        selectBtn.setAllCaps(false);
+                        selectBtn.setTextSize(12);
+                        selectBtn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+                        selectBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
+                        selectBtn.setOnClickListener(v -> {
+                            emailInput.setText(savedMail);
+                            emailInput.setSelection(savedMail.length());
+                        });
+                        row.addView(selectBtn, new LinearLayout.LayoutParams(0, dp(36), 1f));
+
+                        Button delBtn = new Button(MainActivity.this);
+                        delBtn.setText("🗑️");
+                        delBtn.setTextSize(11);
+                        delBtn.setOnClickListener(v -> {
+                            clientEmails.remove(savedMail);
+                            saveData();
+                            this.run();
+                        });
+                        row.addView(delBtn, new LinearLayout.LayoutParams(dp(42), dp(36)));
+
+                        clientsListContainer.addView(row, rowLp);
+                        shown++;
+                        if (shown >= 5) break;
+                    }
+                }
+                savedLabel.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
+            }
+        };
+
+        emailInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                refreshClientSuggestions.run();
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+        refreshClientSuggestions.run();
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(tr("receipt_title"))
+                .setView(scroll)
+                .setPositiveButton(tr("send_email_btn"), null)
+                .setNeutralButton(tr("clear_receipt_btn"), (d, w) -> {
+                    currentReceipt.clear();
+                    lastExitTotal = 0.0;
+                    sessionExitTotal = 0.0;
+                    saveData();
+                    updateStats();
+                })
+                .setNegativeButton(tr("cancel"), null)
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            Button sendBtn = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            sendBtn.setOnClickListener(v -> {
+                String targetEmail = emailInput.getText().toString().trim();
+                if (targetEmail.isEmpty() || !targetEmail.contains("@")) {
+                    Toast.makeText(MainActivity.this, tr("email_invalid"), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                // Enregistrement automatique dans le registre clients
+                if (!clientEmails.contains(targetEmail)) {
+                    clientEmails.add(0, targetEmail);
+                    saveData();
+                }
+                String subject = "Ticket de caisse - " + (shopName.isEmpty() ? "OptiStock" : shopName);
+                String body = buildReceiptText();
+                dialog.dismiss();
+                dispatchReceiptEmail(targetEmail, subject, body);
+            });
+        });
+
+        dialog.show();
+    }
+
+    private void dispatchReceiptEmail(String toEmail, String subject, String bodyText) {
+        if (!senderEmail.isEmpty() && !senderAppPass.isEmpty()) {
+            AlertDialog progress = new AlertDialog.Builder(this)
+                    .setMessage("📤 Envoi automatique du ticket à " + toEmail + "...")
+                    .setCancelable(false)
+                    .create();
+            progress.show();
+
+            executor.execute(() -> {
+                boolean ok = sendSmtpSslEmail(senderEmail.trim(), senderAppPass.trim(), toEmail, subject, bodyText);
+                mainHandler.post(() -> {
+                    progress.dismiss();
+                    if (ok) {
+                        Toast.makeText(MainActivity.this, tr("email_sent_ok"), Toast.LENGTH_LONG).show();
+                    } else {
+                        launchEmailClientFallback(toEmail, subject, bodyText);
+                    }
+                });
+            });
+        } else {
+            launchEmailClientFallback(toEmail, subject, bodyText);
+        }
+    }
+
+    private void launchEmailClientFallback(String toEmail, String subject, String bodyText) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_SENDTO);
+            intent.setData(Uri.parse("mailto:"));
+            intent.putExtra(Intent.EXTRA_EMAIL, new String[]{toEmail});
+            intent.putExtra(Intent.EXTRA_SUBJECT, subject);
+            intent.putExtra(Intent.EXTRA_TEXT, bodyText);
+            startActivity(Intent.createChooser(intent, "Envoyer le ticket"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur ouverture mail : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private boolean sendSmtpSslEmail(String fromUser, String appPass, String toMail, String subject, String body) {
+        try {
+            String host = "smtp.gmail.com";
+            if (fromUser.endsWith("@outlook.com") || fromUser.endsWith("@hotmail.com") || fromUser.endsWith("@live.fr")) {
+                host = "smtp.office365.com";
+            } else if (fromUser.endsWith("@yahoo.com") || fromUser.endsWith("@yahoo.fr")) {
+                host = "smtp.mail.yahoo.com";
+            }
+            SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+            SSLSocket socket = (SSLSocket) factory.createSocket(host, 465);
+            socket.setSoTimeout(8000);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
+            PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
+
+            reader.readLine();
+            writer.println("EHLO optistock");
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("250 ")) break;
+            }
+            writer.println("AUTH LOGIN");
+            reader.readLine();
+            writer.println(Base64.encodeToString(fromUser.getBytes("UTF-8"), Base64.NO_WRAP));
+            reader.readLine();
+            writer.println(Base64.encodeToString(appPass.replace(" ", "").getBytes("UTF-8"), Base64.NO_WRAP));
+            String authResp = reader.readLine();
+            if (authResp == null || !authResp.startsWith("235")) {
+                socket.close();
+                return false;
+            }
+
+            writer.println("MAIL FROM:<" + fromUser + ">");
+            reader.readLine();
+            writer.println("RCPT TO:<" + toMail + ">");
+            reader.readLine();
+            writer.println("DATA");
+            reader.readLine();
+
+            writer.println("From: " + shopName + " <" + fromUser + ">");
+            writer.println("To: <" + toMail + ">");
+            writer.println("Subject: " + subject);
+            writer.println("Content-Type: text/plain; charset=UTF-8");
+            writer.println();
+            writer.println(body);
+            writer.println(".");
+            reader.readLine();
+            writer.println("QUIT");
+            socket.close();
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -672,9 +983,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showOptionsDialog() {
+        ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(16), dp(20), dp(10));
+        scroll.addView(box);
 
         TextView langLabel = new TextView(this);
         langLabel.setText(tr("opt_lang"));
@@ -693,23 +1006,71 @@ public class MainActivity extends AppCompatActivity {
         Switch darkSwitch = new Switch(this);
         darkSwitch.setText(tr("opt_dark"));
         darkSwitch.setChecked(isDarkMode);
-        darkSwitch.setPadding(0, dp(16), 0, dp(12));
+        darkSwitch.setPadding(0, dp(14), 0, dp(10));
         box.addView(darkSwitch);
 
         Switch priceSwitch = new Switch(this);
         priceSwitch.setText(tr("opt_prices"));
         priceSwitch.setChecked(usePrices);
-        priceSwitch.setPadding(0, dp(8), dp(0), dp(16));
+        priceSwitch.setPadding(0, dp(6), 0, dp(14));
         box.addView(priceSwitch);
+
+        TextView shopTv = new TextView(this);
+        shopTv.setText(tr("opt_shop_name"));
+        shopTv.setTypeface(null, Typeface.BOLD);
+        box.addView(shopTv);
+
+        EditText shopInput = new EditText(this);
+        shopInput.setText(shopName);
+        shopInput.setHint("Ex: OptiStock");
+        shopInput.setSingleLine(true);
+        box.addView(shopInput);
+
+        TextView senderTv = new TextView(this);
+        senderTv.setText(tr("opt_sender_email"));
+        senderTv.setTypeface(null, Typeface.BOLD);
+        senderTv.setPadding(0, dp(10), 0, 0);
+        box.addView(senderTv);
+
+        EditText senderInput = new EditText(this);
+        senderInput.setText(senderEmail);
+        senderInput.setHint("exemple@gmail.com");
+        senderInput.setInputType(InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        senderInput.setSingleLine(true);
+        box.addView(senderInput);
+
+        TextView passTv = new TextView(this);
+        passTv.setText(tr("opt_sender_pass"));
+        passTv.setTextSize(12);
+        passTv.setPadding(0, dp(10), 0, 0);
+        box.addView(passTv);
+
+        EditText passInput = new EditText(this);
+        passInput.setText(senderAppPass);
+        passInput.setHint("xxxx xxxx xxxx xxxx");
+        passInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        passInput.setSingleLine(true);
+        box.addView(passInput);
 
         new AlertDialog.Builder(this)
                 .setTitle(tr("options_title"))
-                .setView(box)
+                .setView(scroll)
                 .setPositiveButton(tr("save"), (d, w) -> {
                     langPref = langCodes[langSpinner.getSelectedItemPosition()];
                     isDarkMode = darkSwitch.isChecked();
                     usePrices = priceSwitch.isChecked();
-                    prefs.edit().putString("langPref", langPref).putBoolean("darkMode", isDarkMode).putBoolean("usePrices", usePrices).apply();
+                    shopName = shopInput.getText().toString().trim();
+                    if (shopName.isEmpty()) shopName = "OptiStock";
+                    senderEmail = senderInput.getText().toString().trim();
+                    senderAppPass = passInput.getText().toString().trim();
+                    prefs.edit()
+                            .putString("langPref", langPref)
+                            .putBoolean("darkMode", isDarkMode)
+                            .putBoolean("usePrices", usePrices)
+                            .putString("shopName", shopName)
+                            .putString("senderEmail", senderEmail)
+                            .putString("senderAppPass", senderAppPass)
+                            .apply();
                     applyThemeAndLang();
                 })
                 .setNegativeButton(tr("cancel"), null)
@@ -830,6 +1191,23 @@ public class MainActivity extends AppCompatActivity {
             Bitmap bmp = BitmapFactory.decodeStream(is);
             return bmp != null ? bitmapToBase64(bmp) : "";
         } catch (Exception e) { return ""; }
+    }
+
+    private void addOrUpdateReceiptItem(String barcode, String name, int qtyRemoved, double unitPrice) {
+        if (qtyRemoved <= 0) return;
+        for (ReceiptItem item : currentReceipt) {
+            if (item.barcode.equals(barcode) && Math.abs(item.unitPrice - unitPrice) < 0.001) {
+                item.quantity += qtyRemoved;
+                item.name = name;
+                return;
+            }
+        }
+        ReceiptItem newItem = new ReceiptItem();
+        newItem.barcode = barcode;
+        newItem.name = name;
+        newItem.quantity = qtyRemoved;
+        newItem.unitPrice = unitPrice;
+        currentReceipt.add(newItem);
     }
 
     private void showProductTransactionDialog(Product product, boolean isEntry, boolean isNew) {
@@ -1017,9 +1395,9 @@ public class MainActivity extends AppCompatActivity {
                     } else {
                         int actualRemoved = Math.min(product.quantity, Math.max(0, delta));
                         product.quantity = Math.max(0, product.quantity - delta);
-                        if (usePrices) {
+                        if (usePrices && actualRemoved > 0) {
                             lastExitTotal = actualRemoved * product.price;
-                            sessionExitTotal += lastExitTotal;
+                            addOrUpdateReceiptItem(product.barcode, product.name, actualRemoved, product.price);
                         }
                     }
                     saveData();
@@ -1240,10 +1618,23 @@ public class MainActivity extends AppCompatActivity {
             for (String s : stocksList) stArr.put(s);
             JSONArray catArr = new JSONArray();
             for (String c : categoriesList) catArr.put(c);
+            JSONArray clientArr = new JSONArray();
+            for (String em : clientEmails) clientArr.put(em);
+            JSONArray recArr = new JSONArray();
+            for (ReceiptItem ri : currentReceipt) {
+                JSONObject ro = new JSONObject();
+                ro.put("barcode", ri.barcode);
+                ro.put("name", ri.name);
+                ro.put("quantity", ri.quantity);
+                ro.put("unitPrice", ri.unitPrice);
+                recArr.put(ro);
+            }
             prefs.edit()
                     .putString("inventory_json", prodArr.toString())
                     .putString("stocks_json", stArr.toString())
                     .putString("cats_json", catArr.toString())
+                    .putString("clients_json", clientArr.toString())
+                    .putString("receipt_json", recArr.toString())
                     .putString("currentStock", currentStock)
                     .apply();
         } catch (Exception ignored) {}
@@ -1269,6 +1660,26 @@ public class MainActivity extends AppCompatActivity {
             categoriesList.add("Alimentaire");
             categoriesList.add("Matériel");
         }
+
+        clientEmails.clear();
+        try {
+            JSONArray clientArr = new JSONArray(prefs.getString("clients_json", "[]"));
+            for (int i = 0; i < clientArr.length(); i++) clientEmails.add(clientArr.getString(i));
+        } catch (Exception ignored) {}
+
+        currentReceipt.clear();
+        try {
+            JSONArray recArr = new JSONArray(prefs.getString("receipt_json", "[]"));
+            for (int i = 0; i < recArr.length(); i++) {
+                JSONObject ro = recArr.getJSONObject(i);
+                ReceiptItem ri = new ReceiptItem();
+                ri.barcode = ro.optString("barcode", "");
+                ri.name = ro.optString("name", "");
+                ri.quantity = ro.optInt("quantity", 1);
+                ri.unitPrice = ro.optDouble("unitPrice", 0.0);
+                currentReceipt.add(ri);
+            }
+        } catch (Exception ignored) {}
 
         inventory.clear();
         try {
