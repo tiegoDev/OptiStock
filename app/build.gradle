@@ -10,16 +10,29 @@ android {
         applicationId "com.godev.optistock"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 12
+        versionName "1.12"
+    }
+
+    signingConfigs {
+        fixedConfig {
+            storeFile file("optistock.keystore")
+            storePassword "optistock123"
+            keyAlias "optistock_key"
+            keyPassword "optistock123"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.fixedConfig
+        }
         release {
+            signingConfig signingConfigs.fixedConfig
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -27,8 +40,8 @@ android {
 }
 
 dependencies {
-    implementation "com.android.billingclient:billing:6.2.1"
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
+    implementation 'com.android.billingclient:billing:6.2.1'
 }
