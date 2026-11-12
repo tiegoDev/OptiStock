@@ -173,7 +173,7 @@ public class MainActivity extends AppCompatActivity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private LinearLayout rootLayout, headerLayout, subHeaderLayout, statsRefsCard, statsUnitsCard, statsLowCard, emptyContainer, exitTotalBanner, bottomBarLayout;
+    private LinearLayout rootLayout, headerLayout, actionRowLayout, subHeaderLayout, statsRefsCard, statsUnitsCard, statsLowCard, emptyContainer, exitTotalBanner, bottomBarLayout;
     private TextView titleText, trialBannerText, statsRefsValue, statsRefsLabel, statsUnitsValue, statsUnitsLabel, statsLowValue, statsLowLabel, emptyText, exitTotalText;
     private ImageView headerLogo, emptyLogo;
     private EditText searchInput;
@@ -699,7 +699,7 @@ public class MainActivity extends AppCompatActivity {
         trialLp.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(trialBannerText, trialLp);
 
-        // EN-TÊTE CORRIGÉ : TITRE FLUIDE ET ENTIER SANS COUPURE
+        // EN-TÊTE FLUIDE SANS COUPURE
         headerLayout = new LinearLayout(this);
         headerLayout.setOrientation(LinearLayout.HORIZONTAL);
         headerLayout.setGravity(Gravity.CENTER_VERTICAL);
@@ -716,7 +716,7 @@ public class MainActivity extends AppCompatActivity {
         titleText.setTypeface(null, Typeface.BOLD);
         titleText.setSingleLine(true);
         titleText.setOnClickListener(v -> showLaunchOfferDialog());
-        headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f));
+        headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f));
 
         LinearLayout rightBtns = new LinearLayout(this);
         rightBtns.setOrientation(LinearLayout.HORIZONTAL);
@@ -742,21 +742,29 @@ public class MainActivity extends AppCompatActivity {
         btnPdf.setOnClickListener(v -> startPdfExport());
         rightBtns.addView(btnPdf, pdfLp);
 
+        headerLayout.addView(rightBtns, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.6f));
+        rootLayout.addView(headerLayout);
+
+        // NOUVELLE LIGNE DÉDIÉE POUR LE BOUTON OPTIONS
+        actionRowLayout = new LinearLayout(this);
+        actionRowLayout.setOrientation(LinearLayout.HORIZONTAL);
+        actionRowLayout.setGravity(Gravity.END);
+        LinearLayout.LayoutParams actRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actRowLp.setMargins(0, dp(6), 0, dp(2));
+
         btnOptions = new Button(this);
-        btnOptions.setTextSize(11);
+        btnOptions.setTextSize(12);
         btnOptions.setAllCaps(false);
         btnOptions.setTypeface(null, Typeface.BOLD);
-        btnOptions.setPadding(dp(6), dp(4), dp(6), dp(4));
+        btnOptions.setPadding(dp(14), dp(4), dp(14), dp(4));
         btnOptions.setOnClickListener(v -> showOptionsDialog());
-        rightBtns.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
-
-        headerLayout.addView(rightBtns, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.8f));
-        rootLayout.addView(headerLayout);
+        actionRowLayout.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)));
+        rootLayout.addView(actionRowLayout, actRowLp);
 
         subHeaderLayout = new LinearLayout(this);
         subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        subLp.setMargins(0, dp(10), 0, dp(8));
+        subLp.setMargins(0, dp(8), 0, dp(8));
 
         btnStockSelector = new Button(this);
         btnStockSelector.setAllCaps(false);
@@ -1482,7 +1490,6 @@ public class MainActivity extends AppCompatActivity {
             PdfDocument.Page page = pdf.startPage(pageInfo);
             Canvas canvas = page.getCanvas();
 
-            // Intégration du logo d'entreprise sur le ticket PDF s'il existe
             Bitmap logoBmp = null;
             if (customLogoPath != null && !customLogoPath.isEmpty()) {
                 logoBmp = loadBitmapFromInternalStorage(customLogoPath);
@@ -1816,7 +1823,6 @@ public class MainActivity extends AppCompatActivity {
         shopInput.setSingleLine(true);
         box.addView(shopInput);
 
-        // CONFIGURATION DU LOGO D'ENTREPRISE DANS LES OPTIONS
         TextView logoSecTv = new TextView(this);
         logoSecTv.setText(tr("opt_custom_logo"));
         logoSecTv.setTypeface(null, Typeface.BOLD);
@@ -2570,127 +2576,6 @@ public class MainActivity extends AppCompatActivity {
         intent.setType("application/pdf");
         intent.putExtra(Intent.EXTRA_TITLE, "OptiStock_" + currentStock.replaceAll("\\s+", "_") + "_" + new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date()) + ".pdf");
         startActivityForResult(intent, REQ_CREATE_PDF);
-    }
-
-    private void generatePdfToUri(Uri uri) {
-        try {
-            PdfDocument pdf = new PdfDocument();
-            Paint paint = new Paint();
-            Paint linePaint = new Paint();
-            linePaint.setColor(Color.LTGRAY);
-            linePaint.setStrokeWidth(1f);
-
-            int pageWidth = 595, pageHeight = 842, pageNumber = 1, y = 55;
-            PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
-            PdfDocument.Page page = pdf.startPage(pageInfo);
-            Canvas canvas = page.getCanvas();
-
-            // Intégration du logo et du nom d'entreprise sur les PDF exportés
-            Bitmap logoBmp = null;
-            if (customLogoPath != null && !customLogoPath.isEmpty()) {
-                logoBmp = loadBitmapFromInternalStorage(customLogoPath);
-            }
-            if (logoBmp == null) {
-                int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
-                if (resId != 0) logoBmp = BitmapFactory.decodeResource(getResources(), resId);
-            }
-            if (logoBmp != null) {
-                canvas.drawBitmap(Bitmap.createScaledBitmap(logoBmp, 40, 40, true), 40, y - 10, null);
-                paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
-                String companyTitle = ((shopName != null && !shopName.isEmpty()) ? shopName : "OptiStock") + " - " + currentStock;
-                canvas.drawText(companyTitle, 90, y + 14, paint);
-                y += 38;
-            } else {
-                paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
-                canvas.drawText(((shopName != null && !shopName.isEmpty()) ? shopName : "OptiStock") + " - " + currentStock, 40, y, paint);
-                y += 38;
-            }
-
-            paint.setTextSize(10f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
-            canvas.drawText("Date : " + new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date()) + "  |  Développé par GoDev", 40, y, paint);
-            y += 18; canvas.drawLine(40, y, 555, y, linePaint); y += 18;
-
-            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-            canvas.drawText("Photo", 40, y, paint);
-            canvas.drawText("Produit", 85, y, paint);
-            canvas.drawText("Catégorie", 285, y, paint);
-            if (usePrices) canvas.drawText("Prix", 420, y, paint);
-            canvas.drawText("Qté", 510, y, paint);
-            y += 8; canvas.drawLine(40, y, 555, y, linePaint); y += 14;
-
-            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
-            double totalStockValue = 0.0;
-            for (Product p : filteredInventory) {
-                if (y > 760) {
-                    pdf.finishPage(page);
-                    pageNumber++;
-                    pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
-                    page = pdf.startPage(pageInfo);
-                    canvas = page.getCanvas();
-                    y = 50;
-                }
-                if (p.imagePath != null && !p.imagePath.isEmpty()) {
-                    Bitmap b = loadBitmapFromInternalStorage(p.imagePath);
-                    if (b != null) canvas.drawBitmap(Bitmap.createScaledBitmap(b, 32, 32, true), 40, y - 8, null);
-                }
-                canvas.drawText(p.name.length() > 30 ? p.name.substring(0, 27) + "..." : p.name, 85, y + 10, paint);
-                String catStr = p.category != null ? p.category : "";
-                canvas.drawText(catStr.length() > 18 ? catStr.substring(0, 15) + "..." : catStr, 285, y + 10, paint);
-                if (usePrices) {
-                    canvas.drawText(String.format(Locale.getDefault(), "%.2f €", p.price), 420, y + 10, paint);
-                    totalStockValue += p.price * p.quantity;
-                }
-                paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-                canvas.drawText(String.valueOf(p.quantity), 510, y + 10, paint);
-                paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
-                y += 34; canvas.drawLine(40, y - 6, 555, y - 6, linePaint);
-            }
-            if (usePrices) {
-                y += 16;
-                paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-                canvas.drawText(String.format(Locale.getDefault(), "Valeur totale du stock : %.2f €", totalStockValue), 350, y, paint);
-            }
-            pdf.finishPage(page);
-            OutputStream os = getContentResolver().openOutputStream(uri);
-            if (os != null) { pdf.writeTo(os); os.close(); }
-            pdf.close();
-            Toast.makeText(this, tr("pdf_ok"), Toast.LENGTH_LONG).show();
-        } catch (Exception e) {
-            Toast.makeText(this, "Erreur PDF : " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode != Activity.RESULT_OK || data == null) return;
-        if (requestCode == REQ_CREATE_PDF && data.getData() != null) {
-            generatePdfToUri(data.getData());
-        } else if (requestCode == REQ_CREATE_RECEIPT_PDF && data.getData() != null) {
-            generateReceiptPdfToUri(data.getData(), pendingReceiptDiscountVal, pendingReceiptDiscountPct);
-        } else if (requestCode == REQ_EXPORT_BACKUP && data.getData() != null) {
-            generateBackupToUri(data.getData());
-        } else if (requestCode == REQ_IMPORT_BACKUP && data.getData() != null) {
-            restoreBackupFromUri(data.getData());
-        } else if (requestCode == REQ_EXPORT_HISTORY_CSV && data.getData() != null) {
-            generateHistoryCsvToUri(data.getData());
-        } else if (requestCode == REQ_PICK_CUSTOM_LOGO && data.getData() != null) {
-            try {
-                InputStream is = getContentResolver().openInputStream(data.getData());
-                Bitmap bmp = BitmapFactory.decodeStream(is);
-                if (is != null) is.close();
-                if (bmp != null) {
-                    tempCustomLogoPath = saveBitmapToInternalStorage(bmp);
-                    if (optionsLogoPreview != null) optionsLogoPreview.setImageBitmap(bmp);
-                }
-            } catch (Exception ignored) {}
-        } else if (requestCode == REQ_TAKE_PHOTO && data.getExtras() != null) {
-            Bitmap photo = (Bitmap) data.getExtras().get("data");
-            if (photo != null) {
-                tempPhotoPath = saveBitmapToInternalStorage(photo);
-                if (currentPhotoPreview != null) currentPhotoPreview.setImageBitmap(photo);
-            }
-        }
     }
 
     private void saveData() {
