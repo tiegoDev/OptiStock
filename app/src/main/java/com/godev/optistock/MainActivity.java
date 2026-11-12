@@ -24,7 +24,10 @@ import android.os.Vibrator;
 import android.provider.MediaStore;
 import android.text.Editable;
 import android.text.InputType;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextWatcher;
+import android.text.style.ForegroundColorSpan;
 import android.util.Base64;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -104,8 +107,9 @@ public class MainActivity extends AppCompatActivity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private LinearLayout rootLayout, headerLayout, subHeaderLayout, statsCard, exitTotalBanner;
-    private TextView titleText, statsRefsText, statsUnitsText, emptyText, exitTotalText;
+    private LinearLayout rootLayout, headerLayout, subHeaderLayout, statsRefsCard, statsUnitsCard, emptyContainer, exitTotalBanner, bottomBarLayout;
+    private TextView titleText, statsRefsValue, statsRefsLabel, statsUnitsValue, statsUnitsLabel, emptyText, exitTotalText;
+    private ImageView headerLogo, emptyLogo;
     private EditText searchInput;
     private Button btnEntry, btnExit, btnPdf, btnOptions, btnStockSelector, btnCatFilter;
     private ListView listView;
@@ -121,6 +125,15 @@ public class MainActivity extends AppCompatActivity {
         showSplashScreen();
     }
 
+    private void loadLogoInto(ImageView imgView) {
+        int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
+        if (resId != 0) {
+            imgView.setImageResource(resId);
+        } else {
+            imgView.setImageResource(android.R.drawable.ic_menu_gallery);
+        }
+    }
+
     private void showSplashScreen() {
         LinearLayout splashRoot = new LinearLayout(this);
         splashRoot.setOrientation(LinearLayout.VERTICAL);
@@ -131,12 +144,7 @@ public class MainActivity extends AppCompatActivity {
 
         ImageView logoView = new ImageView(this);
         logoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
-        if (resId != 0) {
-            logoView.setImageResource(resId);
-        } else {
-            logoView.setImageResource(android.R.drawable.ic_menu_gallery);
-        }
+        loadLogoInto(logoView);
 
         LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(300), dp(300));
         logoLp.gravity = Gravity.CENTER;
@@ -151,7 +159,7 @@ public class MainActivity extends AppCompatActivity {
 
         TextView footerTv = new TextView(this);
         footerTv.setText("Développé par GoDev");
-        footerTv.setTextColor(Color.parseColor("#60A5FA"));
+        footerTv.setTextColor(Color.parseColor("#38BDF8"));
         footerTv.setTextSize(15);
         footerTv.setTypeface(null, Typeface.BOLD);
         footerTv.setGravity(Gravity.CENTER);
@@ -233,12 +241,12 @@ public class MainActivity extends AppCompatActivity {
     private String tr(String key) {
         Map<String, String[]> dict = new HashMap<>();
         dict.put("app_title", new String[]{"OptiStock", "OptiStock", "OptiStock"});
-        dict.put("refs", new String[]{"Références", "Items", "Referencias"});
-        dict.put("units", new String[]{"Total Unités", "Total Units", "Unidades Totales"});
+        dict.put("refs", new String[]{"RÉFÉRENCES", "ITEMS", "REFERENCIAS"});
+        dict.put("units", new String[]{"TOTAL UNITÉS", "TOTAL UNITS", "UNIDADES TOTALES"});
         dict.put("btn_in", new String[]{"+ ENTRÉE", "+ STOCK IN", "+ ENTRADA"});
         dict.put("btn_out", new String[]{"- SORTIE", "- STOCK OUT", "- SALIDA"});
-        dict.put("search", new String[]{"Rechercher un produit ou code...", "Search product or barcode...", "Buscar producto o código..."});
-        dict.put("empty", new String[]{"Aucun produit dans ce stock.\nAppuyez sur + ENTRÉE pour scanner.", "No products in this stock.\nTap + STOCK IN to scan.", "Sin productos en este stock.\nToque + ENTRADA para escanear."});
+        dict.put("search", new String[]{"🔍 Rechercher un produit ou code...", "🔍 Search product or barcode...", "🔍 Buscar producto o código..."});
+        dict.put("empty", new String[]{"Aucun produit dans ce stock.\nAppuyez sur + ENTRÉE en bas pour scanner.", "No products in this stock.\nTap + STOCK IN below to scan.", "Sin productos en este stock.\nToque + ENTRADA abajo para escanear."});
         dict.put("fetching", new String[]{"Recherche du produit sur Internet...", "Searching product online...", "Buscando producto en línea..."});
         dict.put("entry_title", new String[]{"Entrée de stock", "Stock Entry", "Entrada de stock"});
         dict.put("exit_title", new String[]{"Sortie de stock", "Stock Exit", "Salida de stock"});
@@ -267,10 +275,10 @@ public class MainActivity extends AppCompatActivity {
         dict.put("options_title", new String[]{"⚙️ Options", "⚙️ Settings", "⚙️ Opciones"});
         dict.put("opt_lang", new String[]{"Langue de l'application :", "App Language:", "Idioma de la aplicación:"});
         dict.put("lang_sys", new String[]{"📱 Langue du téléphone", "📱 Phone Language", "📱 Idioma del teléfono"});
-        dict.put("opt_dark", new String[]{"Mode Sombre", "Dark Mode", "Modo Oscuro"});
+        dict.put("opt_dark", new String[]{"Mode Sombre (Cyber-Logistique)", "Dark Mode (Cyber-Logistics)", "Modo Oscuro (Ciber-Logística)"});
         dict.put("opt_prices", new String[]{"Activer la gestion des prix", "Enable product prices", "Activar precios de productos"});
         dict.put("exit_total_live", new String[]{"Prix total de cette sortie : ", "Total price for this exit: ", "Precio total de esta salida: "});
-        dict.put("exit_banner", new String[]{"💰 Dernière sortie : %1$.2f €  |  Total : %2$.2f €", "💰 Last exit: %1$.2f  |  Total: %2$.2f", "💰 Última salida: %1$.2f €  |  Total: %2$.2f €"});
+        dict.put("exit_banner", new String[]{"💰 Sortie : %1$.2f €  |  Cumul : %2$.2f €", "💰 Exit: %1$.2f  |  Total: %2$.2f", "💰 Salida: %1$.2f €  |  Total: %2$.2f €"});
 
         String eff = langPref.equals("SYS") ? Locale.getDefault().getLanguage().toLowerCase() : langPref;
         int idx = eff.startsWith("en") ? 1 : (eff.startsWith("es") ? 2 : 0);
@@ -280,24 +288,31 @@ public class MainActivity extends AppCompatActivity {
     private void buildMainUI() {
         rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
-        rootLayout.setPadding(dp(14), dp(14), dp(14), dp(10));
+        rootLayout.setPadding(dp(14), dp(12), dp(14), dp(12));
 
+        // 1. EN-TÊTE AVEC VRAI LOGO EN HAUT À GAUCHE + TITRE BICOLORE
         headerLayout = new LinearLayout(this);
         headerLayout.setOrientation(LinearLayout.HORIZONTAL);
         headerLayout.setGravity(Gravity.CENTER_VERTICAL);
 
+        headerLogo = new ImageView(this);
+        headerLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        loadLogoInto(headerLogo);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        logoLp.setMargins(0, 0, dp(10), 0);
+        headerLayout.addView(headerLogo, logoLp);
+
         titleText = new TextView(this);
-        titleText.setTextSize(22);
+        titleText.setTextSize(23);
         titleText.setTypeface(null, Typeface.BOLD);
         headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         btnPdf = new Button(this);
         btnPdf.setTextSize(12);
         btnPdf.setAllCaps(false);
-        btnPdf.setTextColor(Color.WHITE);
-        btnPdf.setBackground(createRoundedBg(Color.parseColor("#3B82F6"), dp(10)));
-        btnPdf.setPadding(dp(12), dp(6), dp(12), dp(6));
-        LinearLayout.LayoutParams pdfLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38));
+        btnPdf.setTypeface(null, Typeface.BOLD);
+        btnPdf.setPadding(dp(12), dp(4), dp(12), dp(4));
+        LinearLayout.LayoutParams pdfLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
         pdfLp.setMargins(0, 0, dp(8), 0);
         btnPdf.setOnClickListener(v -> startPdfExport());
         headerLayout.addView(btnPdf, pdfLp);
@@ -305,89 +320,85 @@ public class MainActivity extends AppCompatActivity {
         btnOptions = new Button(this);
         btnOptions.setTextSize(12);
         btnOptions.setAllCaps(false);
-        btnOptions.setPadding(dp(12), dp(6), dp(12), dp(6));
+        btnOptions.setTypeface(null, Typeface.BOLD);
+        btnOptions.setPadding(dp(12), dp(4), dp(12), dp(4));
         btnOptions.setOnClickListener(v -> showOptionsDialog());
-        headerLayout.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)));
+        headerLayout.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)));
 
         rootLayout.addView(headerLayout);
 
+        // 2. SÉLECTEURS DE STOCK ET DE CATÉGORIE
         subHeaderLayout = new LinearLayout(this);
         subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        subLp.setMargins(0, dp(10), 0, dp(10));
+        subLp.setMargins(0, dp(12), 0, dp(10));
 
         btnStockSelector = new Button(this);
         btnStockSelector.setAllCaps(false);
         btnStockSelector.setTextSize(13);
         btnStockSelector.setTypeface(null, Typeface.BOLD);
-        btnStockSelector.setPadding(dp(12), dp(8), dp(12), dp(8));
+        btnStockSelector.setPadding(dp(12), dp(6), dp(12), dp(6));
         btnStockSelector.setOnClickListener(v -> showStockPopupMenu(v));
-        LinearLayout.LayoutParams stBtnLp = new LinearLayout.LayoutParams(0, dp(42), 1.1f);
+        LinearLayout.LayoutParams stBtnLp = new LinearLayout.LayoutParams(0, dp(42), 1.08f);
         stBtnLp.setMargins(0, 0, dp(6), 0);
         subHeaderLayout.addView(btnStockSelector, stBtnLp);
 
         btnCatFilter = new Button(this);
         btnCatFilter.setAllCaps(false);
         btnCatFilter.setTextSize(12);
-        btnCatFilter.setPadding(dp(12), dp(8), dp(12), dp(8));
+        btnCatFilter.setTypeface(null, Typeface.BOLD);
+        btnCatFilter.setPadding(dp(12), dp(6), dp(12), dp(6));
         btnCatFilter.setOnClickListener(v -> showCategoryFilterPopup(v));
-        LinearLayout.LayoutParams catBtnLp = new LinearLayout.LayoutParams(0, dp(42), 0.9f);
+        LinearLayout.LayoutParams catBtnLp = new LinearLayout.LayoutParams(0, dp(42), 0.92f);
         catBtnLp.setMargins(dp(6), 0, 0, 0);
         subHeaderLayout.addView(btnCatFilter, catBtnLp);
 
         rootLayout.addView(subHeaderLayout, subLp);
 
-        statsCard = new LinearLayout(this);
-        statsCard.setOrientation(LinearLayout.HORIZONTAL);
-        statsCard.setGravity(Gravity.CENTER_VERTICAL);
-        statsCard.setPadding(dp(14), dp(10), dp(14), dp(10));
-        LinearLayout.LayoutParams statsParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        statsParams.setMargins(0, 0, 0, dp(10));
+        // 3. COMPTEURS FAÇON DASHBOARD (2 CARTES KPI CÔTE À CÔTE)
+        LinearLayout statsRow = new LinearLayout(this);
+        statsRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams statsRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        statsRowLp.setMargins(0, 0, 0, dp(10));
 
-        statsRefsText = new TextView(this);
-        statsRefsText.setTextSize(14);
-        statsRefsText.setTypeface(null, Typeface.BOLD);
-        statsCard.addView(statsRefsText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        statsRefsCard = new LinearLayout(this);
+        statsRefsCard.setOrientation(LinearLayout.VERTICAL);
+        statsRefsCard.setGravity(Gravity.CENTER);
+        statsRefsCard.setPadding(dp(12), dp(10), dp(12), dp(10));
+        statsRefsValue = new TextView(this);
+        statsRefsValue.setTextSize(22);
+        statsRefsValue.setTypeface(null, Typeface.BOLD);
+        statsRefsLabel = new TextView(this);
+        statsRefsLabel.setTextSize(11);
+        statsRefsLabel.setTypeface(null, Typeface.BOLD);
+        statsRefsCard.addView(statsRefsValue);
+        statsRefsCard.addView(statsRefsLabel);
+        LinearLayout.LayoutParams refCardLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        refCardLp.setMargins(0, 0, dp(6), 0);
+        statsRow.addView(statsRefsCard, refCardLp);
 
-        statsUnitsText = new TextView(this);
-        statsUnitsText.setTextSize(14);
-        statsUnitsText.setTypeface(null, Typeface.BOLD);
-        statsUnitsText.setGravity(Gravity.END);
-        statsCard.addView(statsUnitsText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        statsUnitsCard = new LinearLayout(this);
+        statsUnitsCard.setOrientation(LinearLayout.VERTICAL);
+        statsUnitsCard.setGravity(Gravity.CENTER);
+        statsUnitsCard.setPadding(dp(12), dp(10), dp(12), dp(10));
+        statsUnitsValue = new TextView(this);
+        statsUnitsValue.setTextSize(22);
+        statsUnitsValue.setTypeface(null, Typeface.BOLD);
+        statsUnitsLabel = new TextView(this);
+        statsUnitsLabel.setTextSize(11);
+        statsUnitsLabel.setTypeface(null, Typeface.BOLD);
+        statsUnitsCard.addView(statsUnitsValue);
+        statsUnitsCard.addView(statsUnitsLabel);
+        LinearLayout.LayoutParams unitCardLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        unitCardLp.setMargins(dp(6), 0, 0, 0);
+        statsRow.addView(statsUnitsCard, unitCardLp);
 
-        rootLayout.addView(statsCard, statsParams);
+        rootLayout.addView(statsRow, statsRowLp);
 
-        LinearLayout actionsLayout = new LinearLayout(this);
-        actionsLayout.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actParams.setMargins(0, 0, 0, dp(10));
-
-        btnEntry = new Button(this);
-        btnEntry.setTextSize(15);
-        btnEntry.setTypeface(null, Typeface.BOLD);
-        btnEntry.setTextColor(Color.WHITE);
-        btnEntry.setBackground(createRoundedBg(Color.parseColor("#10B981"), dp(14)));
-        btnEntry.setPadding(0, dp(14), 0, dp(14));
-        btnEntry.setOnClickListener(v -> startBarcodeScan(true));
-        LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        btnInParams.setMargins(0, 0, dp(6), 0);
-        actionsLayout.addView(btnEntry, btnInParams);
-
-        btnExit = new Button(this);
-        btnExit.setTextSize(15);
-        btnExit.setTypeface(null, Typeface.BOLD);
-        btnExit.setTextColor(Color.WHITE);
-        btnExit.setBackground(createRoundedBg(Color.parseColor("#EF4444"), dp(14)));
-        btnExit.setPadding(0, dp(14), 0, dp(14));
-        btnExit.setOnClickListener(v -> startBarcodeScan(false));
-        LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        btnOutParams.setMargins(dp(6), 0, 0, 0);
-        actionsLayout.addView(btnExit, btnOutParams);
-
-        rootLayout.addView(actionsLayout, actParams);
-
+        // 4. BARRE DE RECHERCHE
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
+        searchInput.setTextSize(14);
         searchInput.setPadding(dp(14), dp(10), dp(14), dp(10));
         searchInput.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -401,11 +412,24 @@ public class MainActivity extends AppCompatActivity {
         searchParams.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(searchInput, searchParams);
 
+        // 5. ZONE CENTRALE : ÉCRAN VIDE ILLUSTRÉ EN FILIGRANE OU LISTE DES PRODUITS
+        emptyContainer = new LinearLayout(this);
+        emptyContainer.setOrientation(LinearLayout.VERTICAL);
+        emptyContainer.setGravity(Gravity.CENTER);
+        emptyLogo = new ImageView(this);
+        emptyLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        loadLogoInto(emptyLogo);
+        emptyLogo.setAlpha(0.22f);
+        LinearLayout.LayoutParams emptyLogoLp = new LinearLayout.LayoutParams(dp(120), dp(120));
+        emptyLogoLp.setMargins(0, 0, 0, dp(12));
+        emptyContainer.addView(emptyLogo, emptyLogoLp);
+
         emptyText = new TextView(this);
         emptyText.setGravity(Gravity.CENTER);
-        emptyText.setTextSize(15);
-        emptyText.setPadding(dp(20), dp(40), dp(20), dp(40));
-        rootLayout.addView(emptyText);
+        emptyText.setTextSize(14);
+        emptyText.setPadding(dp(20), 0, dp(20), 0);
+        emptyContainer.addView(emptyText);
+        rootLayout.addView(emptyContainer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         listView = new ListView(this);
         listView.setDivider(null);
@@ -414,12 +438,13 @@ public class MainActivity extends AppCompatActivity {
         listView.setAdapter(adapter);
         rootLayout.addView(listView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        // 6. BANDEAU DE CUMUL DES SORTIES (AU-DESSUS DES BOUTONS DU BAS)
         exitTotalBanner = new LinearLayout(this);
         exitTotalBanner.setOrientation(LinearLayout.HORIZONTAL);
         exitTotalBanner.setGravity(Gravity.CENTER_VERTICAL);
-        exitTotalBanner.setPadding(dp(14), dp(10), dp(14), dp(10));
+        exitTotalBanner.setPadding(dp(14), dp(8), dp(14), dp(8));
         LinearLayout.LayoutParams bannerLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        bannerLp.setMargins(0, dp(6), 0, 0);
+        bannerLp.setMargins(0, dp(6), 0, dp(4));
 
         exitTotalText = new TextView(this);
         exitTotalText.setTextColor(Color.WHITE);
@@ -430,16 +455,125 @@ public class MainActivity extends AppCompatActivity {
         Button btnResetTotal = new Button(this);
         btnResetTotal.setText("↺");
         btnResetTotal.setTextColor(Color.WHITE);
-        btnResetTotal.setBackground(createRoundedBg(Color.parseColor("#991B1B"), dp(8)));
+        btnResetTotal.setBackground(createRoundedBg(Color.parseColor("#991B1B"), dp(8), dp(1), Color.parseColor("#F87171")));
         btnResetTotal.setOnClickListener(v -> {
             lastExitTotal = 0.0;
             sessionExitTotal = 0.0;
             updateStats();
         });
-        exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(36), dp(32)));
-
+        exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(36), dp(30)));
         rootLayout.addView(exitTotalBanner, bannerLp);
+
+        // 7. BARRE D'ACTIONS FIXE TOUT EN BAS SOUS LE POUCE (+ ENTRÉE / - SORTIE)
+        bottomBarLayout = new LinearLayout(this);
+        bottomBarLayout.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actParams.setMargins(0, dp(8), 0, dp(2));
+
+        btnEntry = new Button(this);
+        btnEntry.setTextSize(16);
+        btnEntry.setTypeface(null, Typeface.BOLD);
+        btnEntry.setTextColor(Color.WHITE);
+        btnEntry.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(14), dp(2), Color.parseColor("#34D399")));
+        btnEntry.setOnClickListener(v -> startBarcodeScan(true));
+        LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
+        btnInParams.setMargins(0, 0, dp(6), 0);
+        bottomBarLayout.addView(btnEntry, btnInParams);
+
+        btnExit = new Button(this);
+        btnExit.setTextSize(16);
+        btnExit.setTypeface(null, Typeface.BOLD);
+        btnExit.setTextColor(Color.WHITE);
+        btnExit.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(14), dp(2), Color.parseColor("#F87171")));
+        btnExit.setOnClickListener(v -> startBarcodeScan(false));
+        LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
+        btnOutParams.setMargins(dp(6), 0, 0, 0);
+        bottomBarLayout.addView(btnExit, btnOutParams);
+
+        rootLayout.addView(bottomBarLayout, actParams);
         setContentView(rootLayout);
+    }
+
+    private void applyThemeAndLang() {
+        int bgColor = isDarkMode ? Color.parseColor("#040B1C") : Color.parseColor("#F1F5F9");
+        int cardColor = isDarkMode ? Color.parseColor("#0F172A") : Color.parseColor("#FFFFFF");
+        int accentCard = isDarkMode ? Color.parseColor("#112240") : Color.parseColor("#DBEAFE");
+        int borderCyan = isDarkMode ? Color.parseColor("#0EA5E9") : Color.parseColor("#38BDF8");
+        int borderSubtle = isDarkMode ? Color.parseColor("#1E3A8A") : Color.parseColor("#CBD5E1");
+        int textColor = isDarkMode ? Color.parseColor("#F8FAFC") : Color.parseColor("#0F172A");
+        int subTextColor = isDarkMode ? Color.parseColor("#94A3B8") : Color.parseColor("#64748B");
+        int cyanHighlight = isDarkMode ? Color.parseColor("#38BDF8") : Color.parseColor("#0284C7");
+
+        rootLayout.setBackgroundColor(bgColor);
+
+        // Titre bicolore "Opti" (blanc/foncé) + "Stock" (bleu cyan)
+        SpannableString styledTitle = new SpannableString("OptiStock");
+        styledTitle.setSpan(new ForegroundColorSpan(textColor), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        styledTitle.setSpan(new ForegroundColorSpan(cyanHighlight), 4, 9, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        titleText.setText(styledTitle);
+
+        btnPdf.setText(tr("pdf_btn"));
+        btnPdf.setTextColor(Color.WHITE);
+        btnPdf.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(10), dp(1), Color.parseColor("#38BDF8")));
+
+        btnOptions.setText(tr("options_title"));
+        btnOptions.setTextColor(textColor);
+        btnOptions.setBackground(createRoundedBg(cardColor, dp(10), dp(1), borderSubtle));
+
+        btnStockSelector.setText("🏢 " + currentStock + " ▼");
+        btnStockSelector.setTextColor(textColor);
+        btnStockSelector.setBackground(createRoundedBg(accentCard, dp(12), dp(1), borderCyan));
+
+        String catLabel = selectedCategoryFilter.equals("ALL") ? tr("all_cats") : selectedCategoryFilter;
+        btnCatFilter.setText("🏷️ " + catLabel + " ▼");
+        btnCatFilter.setTextColor(textColor);
+        btnCatFilter.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
+
+        statsRefsCard.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
+        statsRefsValue.setTextColor(cyanHighlight);
+        statsRefsLabel.setTextColor(subTextColor);
+        statsRefsLabel.setText(tr("refs"));
+
+        statsUnitsCard.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
+        statsUnitsValue.setTextColor(Color.parseColor("#10B981"));
+        statsUnitsLabel.setTextColor(subTextColor);
+        statsUnitsLabel.setText(tr("units"));
+
+        btnEntry.setText(tr("btn_in"));
+        btnExit.setText(tr("btn_out"));
+
+        searchInput.setHint(tr("search"));
+        searchInput.setTextColor(textColor);
+        searchInput.setHintTextColor(subTextColor);
+        searchInput.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
+
+        emptyText.setText(tr("empty"));
+        emptyText.setTextColor(subTextColor);
+
+        exitTotalBanner.setBackground(createRoundedBg(Color.parseColor("#991B1B"), dp(12), dp(1), Color.parseColor("#F87171")));
+        filterList();
+    }
+
+    private void updateStats() {
+        int totalRefs = 0, totalUnits = 0;
+        for (Product p : inventory) {
+            if (currentStock.equals(p.stockName)) {
+                totalRefs++;
+                totalUnits += p.quantity;
+            }
+        }
+        statsRefsValue.setText(String.valueOf(totalRefs));
+        statsUnitsValue.setText(String.valueOf(totalUnits));
+
+        emptyContainer.setVisibility(filteredInventory.isEmpty() ? View.VISIBLE : View.GONE);
+        listView.setVisibility(filteredInventory.isEmpty() ? View.GONE : View.VISIBLE);
+
+        if (usePrices && (lastExitTotal > 0 || sessionExitTotal > 0)) {
+            exitTotalBanner.setVisibility(View.VISIBLE);
+            exitTotalText.setText(String.format(Locale.getDefault(), tr("exit_banner"), lastExitTotal, sessionExitTotal));
+        } else {
+            exitTotalBanner.setVisibility(View.GONE);
+        }
     }
 
     private void showStockPopupMenu(View anchor) {
@@ -565,7 +699,7 @@ public class MainActivity extends AppCompatActivity {
         Switch priceSwitch = new Switch(this);
         priceSwitch.setText(tr("opt_prices"));
         priceSwitch.setChecked(usePrices);
-        priceSwitch.setPadding(0, dp(8), 0, dp(16));
+        priceSwitch.setPadding(0, dp(8), dp(0), dp(16));
         box.addView(priceSwitch);
 
         new AlertDialog.Builder(this)
@@ -580,65 +714,6 @@ public class MainActivity extends AppCompatActivity {
                 })
                 .setNegativeButton(tr("cancel"), null)
                 .show();
-    }
-
-    private void applyThemeAndLang() {
-        int bgColor = isDarkMode ? Color.parseColor("#0F172A") : Color.parseColor("#F1F5F9");
-        int cardColor = isDarkMode ? Color.parseColor("#1E293B") : Color.parseColor("#FFFFFF");
-        int accentCard = isDarkMode ? Color.parseColor("#1E3A8A") : Color.parseColor("#DBEAFE");
-        int textColor = isDarkMode ? Color.parseColor("#F8FAFC") : Color.parseColor("#0F172A");
-        int subTextColor = isDarkMode ? Color.parseColor("#94A3B8") : Color.parseColor("#64748B");
-
-        rootLayout.setBackgroundColor(bgColor);
-        titleText.setText("📦 " + tr("app_title"));
-        titleText.setTextColor(textColor);
-        btnPdf.setText(tr("pdf_btn"));
-        btnOptions.setText(tr("options_title"));
-        btnOptions.setTextColor(textColor);
-        btnOptions.setBackground(createRoundedBg(cardColor, dp(10)));
-        btnStockSelector.setText("🏢 " + currentStock + " ▼");
-        btnStockSelector.setTextColor(textColor);
-        btnStockSelector.setBackground(createRoundedBg(accentCard, dp(10)));
-
-        String catLabel = selectedCategoryFilter.equals("ALL") ? tr("all_cats") : selectedCategoryFilter;
-        btnCatFilter.setText("🏷️ " + catLabel + " ▼");
-        btnCatFilter.setTextColor(textColor);
-        btnCatFilter.setBackground(createRoundedBg(cardColor, dp(10)));
-
-        statsCard.setBackground(createRoundedBg(cardColor, dp(12)));
-        statsRefsText.setTextColor(textColor);
-        statsUnitsText.setTextColor(subTextColor);
-        btnEntry.setText(tr("btn_in"));
-        btnExit.setText(tr("btn_out"));
-        searchInput.setHint(tr("search"));
-        searchInput.setTextColor(textColor);
-        searchInput.setHintTextColor(subTextColor);
-        searchInput.setBackground(createRoundedBg(cardColor, dp(12)));
-        emptyText.setText(tr("empty"));
-        emptyText.setTextColor(subTextColor);
-        exitTotalBanner.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(12)));
-        filterList();
-    }
-
-    private void updateStats() {
-        int totalRefs = 0, totalUnits = 0;
-        for (Product p : inventory) {
-            if (currentStock.equals(p.stockName)) {
-                totalRefs++;
-                totalUnits += p.quantity;
-            }
-        }
-        statsRefsText.setText(tr("refs") + " : " + totalRefs);
-        statsUnitsText.setText(tr("units") + " : " + totalUnits);
-        emptyText.setVisibility(filteredInventory.isEmpty() ? View.VISIBLE : View.GONE);
-        listView.setVisibility(filteredInventory.isEmpty() ? View.GONE : View.VISIBLE);
-
-        if (usePrices && (lastExitTotal > 0 || sessionExitTotal > 0)) {
-            exitTotalBanner.setVisibility(View.VISIBLE);
-            exitTotalText.setText(String.format(Locale.getDefault(), tr("exit_banner"), lastExitTotal, sessionExitTotal));
-        } else {
-            exitTotalBanner.setVisibility(View.GONE);
-        }
     }
 
     private void startBarcodeScan(boolean isEntry) {
@@ -970,7 +1045,8 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
             Product p = filteredInventory.get(position);
-            int cardColor = isDarkMode ? Color.parseColor("#1E293B") : Color.parseColor("#FFFFFF");
+            int cardColor = isDarkMode ? Color.parseColor("#0F172A") : Color.parseColor("#FFFFFF");
+            int borderColor = isDarkMode ? Color.parseColor("#1E3A8A") : Color.parseColor("#CBD5E1");
             int textColor = isDarkMode ? Color.parseColor("#F8FAFC") : Color.parseColor("#0F172A");
             int subTextColor = isDarkMode ? Color.parseColor("#94A3B8") : Color.parseColor("#64748B");
 
@@ -978,14 +1054,16 @@ public class MainActivity extends AppCompatActivity {
             card.setOrientation(LinearLayout.HORIZONTAL);
             card.setGravity(Gravity.CENTER_VERTICAL);
             card.setPadding(dp(12), dp(10), dp(12), dp(10));
-            card.setBackground(createRoundedBg(cardColor, dp(14)));
+            card.setBackground(createRoundedBg(cardColor, dp(14), dp(1), borderColor));
 
             ImageView img = new ImageView(MainActivity.this);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            img.setBackground(createRoundedBg(Color.parseColor("#334155"), dp(10)));
+            img.setBackground(createRoundedBg(Color.parseColor("#1E293B"), dp(10)));
             if (p.imageBase64 != null && !p.imageBase64.isEmpty()) {
                 Bitmap b = base64ToBitmap(p.imageBase64);
                 if (b != null) img.setImageBitmap(b);
+            } else {
+                loadLogoInto(img);
             }
             LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(54), dp(54));
             imgLp.setMargins(0, 0, dp(12), 0);
@@ -1230,6 +1308,14 @@ public class MainActivity extends AppCompatActivity {
         GradientDrawable gd = new GradientDrawable();
         gd.setColor(color);
         gd.setCornerRadius(radiusPx);
+        return gd;
+    }
+
+    private GradientDrawable createRoundedBg(int color, int radiusPx, int strokeWidthPx, int strokeColor) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(color);
+        gd.setCornerRadius(radiusPx);
+        gd.setStroke(strokeWidthPx, strokeColor);
         return gd;
     }
 
