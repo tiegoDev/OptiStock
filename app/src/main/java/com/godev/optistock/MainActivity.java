@@ -39,11 +39,14 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.PopupMenu;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
@@ -83,6 +86,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -113,12 +117,22 @@ public class MainActivity extends AppCompatActivity {
 
     static class Movement {
         long timestamp;
-        String type;
+        String type; // "IN" ou "OUT"
         String barcode;
         String productName;
+        String category;
         int quantity;
         String stockName;
         double unitPrice;
+    }
+
+    static class SavedReceipt {
+        long timestamp;
+        String stockName;
+        double totalAmount;
+        double discountAmount;
+        String receiptText;
+        List<ReceiptItem> items = new ArrayList<>();
     }
 
     private final List<Product> inventory = new ArrayList<>();
@@ -126,9 +140,15 @@ public class MainActivity extends AppCompatActivity {
     private final List<String> stocksList = new ArrayList<>();
     private final List<String> categoriesList = new ArrayList<>();
     private final List<ReceiptItem> currentReceipt = new ArrayList<>();
+    private final List<SavedReceipt> savedReceiptsHistory = new ArrayList<>();
     private final List<String> clientEmails = new ArrayList<>();
     private final List<Movement> movementsHistory = new ArrayList<>();
     private final Map<String, Bitmap> bitmapCache = new HashMap<>();
+
+    // Sélections temporaires pour les exports PDF personnalisés
+    private final List<String> pendingExportStocks = new ArrayList<>();
+    private final List<String> pendingExportCats = new ArrayList<>();
+    private int pendingReceiptsPeriod = 0; // 0 = Jour, 1 = Semaine, 2 = Mois
 
     private String currentStock = "";
     private String selectedCategoryFilter = "ALL";
@@ -144,7 +164,7 @@ public class MainActivity extends AppCompatActivity {
     private String searchQuery = "";
     private String senderEmail = "";
     private String senderAppPass = "";
-    private String shopName = "OptiStock";
+    private String shopName = "";
     private String customLogoPath = "";
     private double lastExitTotal = 0.0;
     private double sessionExitTotal = 0.0;
@@ -154,15 +174,16 @@ public class MainActivity extends AppCompatActivity {
     private BillingClient billingClient;
     private ProductDetails proProductDetails;
     private String formattedLaunchPrice = "4,99 €";
-    private int devTapCount = 0;
 
-    private static final int REQ_CREATE_PDF = 1001;
+    private static final int REQ_EXPORT_STOCKS_PDF = 1001;
     private static final int REQ_TAKE_PHOTO = 1002;
     private static final int REQ_EXPORT_BACKUP = 1003;
     private static final int REQ_IMPORT_BACKUP = 1004;
-    private static final int REQ_CREATE_RECEIPT_PDF = 1005;
+    private static final int REQ_CREATE_SINGLE_RECEIPT_PDF = 1005;
     private static final int REQ_EXPORT_HISTORY_CSV = 1006;
     private static final int REQ_PICK_CUSTOM_LOGO = 1007;
+    private static final int REQ_EXPORT_EXITS_PDF = 1008;
+    private static final int REQ_EXPORT_RECEIPTS_PERIOD_PDF = 1009;
 
     private ImageView currentPhotoPreview, optionsLogoPreview;
     private String tempPhotoPath = "";
@@ -177,7 +198,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView titleText, trialBannerText, statsRefsValue, statsRefsLabel, statsUnitsValue, statsUnitsLabel, statsLowValue, statsLowLabel, emptyText, exitTotalText;
     private ImageView headerLogo, emptyLogo;
     private EditText searchInput;
-    private Button btnEntry, btnExit, btnHistory, btnPdf, btnOptions, btnStockSelector, btnCatFilter, btnOpenReceipt;
+    private Button btnTestSim, btnEntry, btnExit, btnHistory, btnExport, btnOptions, btnStockSelector, btnCatFilter, btnOpenReceipt;
     private ListView listView;
 
     @Override
@@ -191,7 +212,7 @@ public class MainActivity extends AppCompatActivity {
         langPref = prefs.getString("langPref", "SYS");
         senderEmail = prefs.getString("senderEmail", "");
         senderAppPass = prefs.getString("senderAppPass", "");
-        shopName = prefs.getString("shopName", "OptiStock");
+        shopName = prefs.getString("shopName", "");
         customLogoPath = prefs.getString("customLogoPath", "");
 
         initTrialTimestamp();
@@ -306,7 +327,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void launchProPurchaseFlow() {
+    private void openPlayStoreOrBilling() {
+        if (isProUnlocked()) {
+            Toast.makeText(this, "⭐ " + tr("pro_version_badge"), Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (billingClient != null && billingClient.isReady() && proProductDetails != null) {
             BillingFlowParams.ProductDetailsParams pdParams = BillingFlowParams.ProductDetailsParams.newBuilder()
                     .setProductDetails(proProductDetails)
@@ -316,10 +341,12 @@ public class MainActivity extends AppCompatActivity {
                     .build();
             billingClient.launchBillingFlow(this, flowParams);
         } else {
-            Toast.makeText(this, tr("billing_pending_msg"), Toast.LENGTH_LONG).show();
-            if (billingClient != null && billingClient.isReady()) {
-                queryProProductDetails();
-                checkExistingPurchases();
+            try {
+                Intent marketIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + getPackageName()));
+                startActivity(marketIntent);
+            } catch (Exception e) {
+                Intent webIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + getPackageName()));
+                startActivity(webIntent);
             }
         }
     }
@@ -337,7 +364,7 @@ public class MainActivity extends AppCompatActivity {
 
         ImageView logo = new ImageView(this);
         logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        loadLogoInto(logo);
+        loadAppLogoInto(logo);
         LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(140), dp(140));
         logoLp.setMargins(0, 0, 0, dp(16));
         container.addView(logo, logoLp);
@@ -404,81 +431,42 @@ public class MainActivity extends AppCompatActivity {
         btnUnlock.setTypeface(null, Typeface.BOLD);
         btnUnlock.setTextColor(Color.WHITE);
         btnUnlock.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(14), dp(2), Color.parseColor("#34D399")));
-        btnUnlock.setOnClickListener(v -> launchProPurchaseFlow());
+        btnUnlock.setOnClickListener(v -> openPlayStoreOrBilling());
         LinearLayout.LayoutParams unlockLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
         unlockLp.setMargins(0, dp(22), 0, dp(10));
         container.addView(btnUnlock, unlockLp);
 
-        Button btnRestore = new Button(this);
-        btnRestore.setText(tr("restore_btn"));
-        btnRestore.setAllCaps(false);
-        btnRestore.setTextSize(13);
-        btnRestore.setTextColor(Color.parseColor("#94A3B8"));
-        btnRestore.setBackground(createRoundedBg(Color.parseColor("#0F172A"), dp(12), dp(1), Color.parseColor("#1E3A8A")));
-        btnRestore.setOnClickListener(v -> {
-            checkExistingPurchases();
-            Toast.makeText(this, tr("checking_purchases"), Toast.LENGTH_SHORT).show();
+        Button btnSimPaywall = new Button(this);
+        btnSimPaywall.setText("🧪 TEST : Simuler l'achat Pro");
+        btnSimPaywall.setAllCaps(false);
+        btnSimPaywall.setTextColor(Color.WHITE);
+        btnSimPaywall.setBackground(createRoundedBg(Color.parseColor("#7C3AED"), dp(12), dp(1), Color.parseColor("#A78BFA")));
+        btnSimPaywall.setOnClickListener(v -> {
+            prefs.edit().putBoolean("devBypassPro", true).apply();
+            buildMainUI();
+            applyThemeAndLang();
         });
-        container.addView(btnRestore, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-
-        container.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
-
-        TextView footerTv = new TextView(this);
-        footerTv.setText("Développé par GoDev");
-        footerTv.setTextColor(Color.parseColor("#38BDF8"));
-        footerTv.setTextSize(13);
-        footerTv.setTypeface(null, Typeface.BOLD);
-        footerTv.setPadding(dp(12), dp(16), dp(12), dp(8));
-        footerTv.setOnClickListener(v -> {
-            devTapCount++;
-            if (devTapCount >= 5) {
-                devTapCount = 0;
-                boolean cur = prefs.getBoolean("devBypassPro", false);
-                prefs.edit().putBoolean("devBypassPro", !cur).apply();
-                Toast.makeText(this, !cur ? "🔧 Mode Test Développeur ACTIVÉ" : "🔧 Mode Test Développeur DÉSACTIVÉ", Toast.LENGTH_SHORT).show();
-                if (!cur) {
-                    buildMainUI();
-                    applyThemeAndLang();
-                }
-            }
-        });
-        container.addView(footerTv);
+        container.addView(btnSimPaywall, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
         setContentView(scroll);
     }
 
-    private void showLaunchOfferDialog() {
-        int daysLeft = getRemainingTrialDays();
-        String msg = isProUnlocked()
-                ? tr("pro_active_desc")
-                : String.format(Locale.getDefault(), tr("trial_popup_desc"), daysLeft, formattedLaunchPrice);
-
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
-                .setTitle("🚀 OptiStock Pro")
-                .setMessage(msg)
-                .setNegativeButton(tr("cancel"), null);
-
-        if (!isProUnlocked()) {
-            b.setPositiveButton(String.format(Locale.getDefault(), tr("unlock_btn_fmt"), formattedLaunchPrice), (d, w) -> launchProPurchaseFlow());
-            b.setNeutralButton(tr("restore_btn"), (d, w) -> checkExistingPurchases());
-        }
-        b.show();
-    }
-
-    private void loadLogoInto(ImageView imgView) {
-        if (customLogoPath != null && !customLogoPath.isEmpty()) {
-            Bitmap bmp = loadBitmapFromInternalStorage(customLogoPath);
-            if (bmp != null) {
-                imgView.setImageBitmap(bmp);
-                return;
-            }
-        }
+    // Charge toujours le logo officiel de l'application OptiStock
+    private void loadAppLogoInto(ImageView imgView) {
         int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
         if (resId != 0) {
             imgView.setImageResource(resId);
         } else {
             imgView.setImageResource(android.R.drawable.ic_menu_gallery);
         }
+    }
+
+    // Récupère le logo de l'entreprise choisi par l'utilisateur (pour les tickets et documents PDF)
+    private Bitmap getUserCompanyLogoBitmap() {
+        if (customLogoPath != null && !customLogoPath.isEmpty()) {
+            return loadBitmapFromInternalStorage(customLogoPath);
+        }
+        return null;
     }
 
     private void showSplashScreen() {
@@ -491,7 +479,7 @@ public class MainActivity extends AppCompatActivity {
 
         ImageView logoView = new ImageView(this);
         logoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        loadLogoInto(logoView);
+        loadAppLogoInto(logoView);
 
         LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(300), dp(300));
         logoLp.gravity = Gravity.CENTER;
@@ -615,9 +603,9 @@ public class MainActivity extends AppCompatActivity {
         dict.put("delete", new String[]{"🗑️ Supprimer", "🗑️ Delete", "🗑️ Eliminar"});
         dict.put("manual_code", new String[]{"Saisie manuelle du code", "Manual Barcode", "Código manual"});
         dict.put("photo_btn", new String[]{"📷 Photo", "📷 Photo", "📷 Foto"});
-        dict.put("hist_btn", new String[]{"📜 Hist.", "📜 Hist.", "📜 Hist."});
-        dict.put("pdf_btn", new String[]{"📄 PDF", "📄 PDF", "📄 PDF"});
-        dict.put("pdf_ok", new String[]{"PDF enregistré avec succès !", "PDF saved successfully!", "¡PDF guardado con éxito!"});
+        dict.put("hist_btn", new String[]{"📜 Historique", "📜 History", "📜 Historial"});
+        dict.put("export_btn", new String[]{"📤 Exporter", "📤 Export", "📤 Exportar"});
+        dict.put("pdf_ok", new String[]{"Document PDF généré avec succès !", "PDF document saved successfully!", "¡Documento PDF guardado con éxito!"});
         dict.put("unknown_prod", new String[]{"Nouveau produit", "New Product", "Nuevo producto"});
         dict.put("not_in_stock", new String[]{"Ce produit n'est pas dans ce stock !", "Product not in this stock!", "¡Producto no está en este stock!"});
         dict.put("all_cats", new String[]{"Toutes catégories", "All Categories", "Todas las categorías"});
@@ -644,9 +632,9 @@ public class MainActivity extends AppCompatActivity {
         dict.put("client_search_hint", new String[]{"🔍 Chercher ou saisir l'e-mail du client...", "🔍 Search or type customer email...", "🔍 Buscar o escribir email del cliente..."});
         dict.put("send_email_btn", new String[]{"📧 Envoyer par mail", "📧 Send by email", "📧 Enviar por correo"});
         dict.put("clear_receipt_btn", new String[]{"🗑️ Vider", "🗑️ Clear", "🗑️ Vaciar"});
-        dict.put("opt_shop_name", new String[]{"Nom de votre entreprise / Boutique :", "Company / Shop Name:", "Nombre de su empresa / Tienda:"});
-        dict.put("opt_custom_logo", new String[]{"Logo de l'entreprise (Factures, PDF et Tickets) :", "Company Logo (Invoices, PDFs and Receipts):", "Logo de la empresa:"});
-        dict.put("pick_logo_btn", new String[]{"🖼️ Choisir un logo", "🖼️ Choose logo", "🖼️ Elegir logo"});
+        dict.put("opt_shop_name", new String[]{"Nom de votre entreprise (Tickets & PDF) :", "Your Company Name (Receipts & PDFs):", "Nombre de su empresa (Tickets y PDFs):"});
+        dict.put("opt_custom_logo", new String[]{"Logo de votre entreprise (Tickets & PDF) :", "Your Company Logo (Receipts & PDFs):", "Logo de su empresa (Tickets y PDFs):"});
+        dict.put("pick_logo_btn", new String[]{"🖼️ Choisir un logo", "🖼️ Choose a logo", "🖼️ Elegir un logo"});
         dict.put("opt_sender_email", new String[]{"Mon adresse e-mail liée (Expéditeur) :", "My linked email address (Sender):", "Mi correo vinculado (Remitente):"});
         dict.put("opt_sender_pass", new String[]{"Clé / Mot de passe d'appli SMTP (Optionnel) :", "SMTP App Password (Optional):", "Contraseña de app SMTP (Opcional):"});
         dict.put("email_sent_ok", new String[]{"✅ Ticket envoyé automatiquement au client !", "✅ Receipt automatically sent to customer!", "✅ ¡Ticket enviado automáticamente al cliente!"});
@@ -663,19 +651,15 @@ public class MainActivity extends AppCompatActivity {
         dict.put("history_csv_btn", new String[]{"📊 Exporter CSV", "📊 Export CSV", "📊 Exportar CSV"});
         dict.put("history_clear_btn", new String[]{"🗑️ Effacer", "🗑️ Clear", "🗑️ Borrar"});
         dict.put("csv_ok", new String[]{"✅ Historique CSV exporté !", "✅ History CSV exported!", "✅ ¡Historial CSV exportado!"});
-        dict.put("trial_banner_fmt", new String[]{"🎁 Essai gratuit : %1$d j restant(s) • Offre lancement %2$s", "🎁 Free trial: %1$d d left • Launch offer %2$s", "🎁 Prueba gratis: %1$d d • Oferta %2$s"});
+        dict.put("trial_banner_fmt", new String[]{"🎁 Essai gratuit (%1$d j) - Cliquez ici pour la version Pro", "🎁 Free trial (%1$d d) - Click here for Pro version", "🎁 Prueba gratis (%1$d d) - Clic aquí para versión Pro"});
+        dict.put("pro_version_badge", new String[]{"⭐ Version Pro", "⭐ Pro Version", "⭐ Versión Pro"});
         dict.put("trial_expired_title", new String[]{"Essai gratuit de 7 jours terminé", "7-Day Free Trial Ended", "Prueba gratuita de 7 días finalizada"});
         dict.put("trial_expired_sub", new String[]{"Débloquez OptiStock définitivement pour continuer à gérer vos stocks et vos tickets sans limite.", "Unlock OptiStock permanently to keep managing your inventory and receipts without limits.", "Desbloquea OptiStock para siempre para seguir gestionando tus stocks y tickets."});
         dict.put("launch_offer_badge", new String[]{"🚀 OFFRE DE LANCEMENT • LICENCE À VIE", "🚀 LAUNCH OFFER • LIFETIME LICENSE", "🚀 OFERTA DE LANZAMIENTO • DE POR VIDA"});
         dict.put("one_time_label", new String[]{"Achat unique • Aucun abonnement", "One-time purchase • No subscription", "Compra única • Sin suscripción"});
         dict.put("pro_perks_list", new String[]{"✓ Multi-stocks & catégories illimités\n✓ Scan code-barres + saisie rapide sans scan\n✓ Ticket de caisse PDF, remises & envoi e-mail\n✓ Historique CSV & sauvegarde complète JSON\n✓ Mises à jour futures incluses", "✓ Unlimited multi-stocks & categories\n✓ Barcode scanner + fast manual mode\n✓ PDF receipts, discounts & client emails\n✓ CSV history & full JSON backup\n✓ All future updates included", "✓ Multi-stocks y categorías ilimitados\n✓ Escáner y modo manual rápido\n✓ Tickets PDF, descuentos y envío email\n✓ Historial CSV y copia de seguridad JSON"});
         dict.put("unlock_btn_fmt", new String[]{"🔓 Débloquer à vie (%1$s)", "🔓 Unlock Lifetime (%1$s)", "🔓 Desbloquear de por vida (%1$s)"});
-        dict.put("restore_btn", new String[]{"🔄 Restaurer un achat", "🔄 Restore Purchase", "🔄 Restaurar compra"});
-        dict.put("checking_purchases", new String[]{"Vérification des achats Google Play...", "Checking Google Play purchases...", "Verificando compras de Google Play..."});
-        dict.put("pro_unlocked_toast", new String[]{"⭐ Merci ! OptiStock Pro est débloqué à vie.", "⭐ Thank you! OptiStock Pro is unlocked for life.", "⭐ ¡Gracias! OptiStock Pro desbloqueado de por vida."});
-        dict.put("billing_pending_msg", new String[]{"Connexion à Google Play en cours. Assurez-vous que l'application est installée via Google Play.", "Connecting to Google Play. Make sure the app is installed via Google Play.", "Conectando a Google Play..."});
-        dict.put("trial_popup_desc", new String[]{"Il vous reste %1$d jour(s) d'essai gratuit.\n\nProfitez dès maintenant de l'offre de lancement à %2$s (achat unique à vie, avant augmentation du tarif).", "You have %1$d day(s) left in your free trial.\n\nGrab the launch offer now at %2$s (one-time lifetime purchase before price increase).", "Te quedan %1$d día(s) de prueba gratuita.\n\nAprovecha la oferta de lanzamiento a %2$s."});
-        dict.put("pro_active_desc", new String[]{"⭐ Licence à vie OptiStock Pro active.\nMerci pour votre soutien !", "⭐ OptiStock Pro Lifetime License active.\nThank you for your support!", "⭐ Licencia de por vida OptiStock Pro activa."});
+        dict.put("pro_unlocked_toast", new String[]{"⭐ Merci ! OptiStock Version Pro est activé.", "⭐ Thank you! OptiStock Pro Version is active.", "⭐ ¡Gracias! OptiStock Versión Pro activada."});
 
         String eff = langPref.equals("SYS") ? Locale.getDefault().getLanguage().toLowerCase() : langPref;
         int idx = eff.startsWith("en") ? 1 : (eff.startsWith("es") ? 2 : 0);
@@ -687,84 +671,80 @@ public class MainActivity extends AppCompatActivity {
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setPadding(dp(12), dp(10), dp(12), dp(10));
 
+        // 0. ENCADRÉ SUPÉRIEUR : ESSAI GRATUIT OU VERSION PRO
         trialBannerText = new TextView(this);
-        trialBannerText.setTextSize(11);
+        trialBannerText.setTextSize(12);
         trialBannerText.setTypeface(null, Typeface.BOLD);
-        trialBannerText.setTextColor(Color.parseColor("#38BDF8"));
         trialBannerText.setGravity(Gravity.CENTER);
-        trialBannerText.setPadding(dp(10), dp(5), dp(10), dp(5));
-        trialBannerText.setBackground(createRoundedBg(Color.parseColor("#0F172A"), dp(8), dp(1), Color.parseColor("#0284C7")));
-        trialBannerText.setOnClickListener(v -> showLaunchOfferDialog());
+        trialBannerText.setPadding(dp(12), dp(7), dp(12), dp(7));
+        trialBannerText.setOnClickListener(v -> openPlayStoreOrBilling());
         LinearLayout.LayoutParams trialLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         trialLp.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(trialBannerText, trialLp);
 
-        // EN-TÊTE FLUIDE SANS COUPURE
+        // 1. EN-TÊTE : LOGO OPTISTOCK + TITRE OPTISTOCK
         headerLayout = new LinearLayout(this);
         headerLayout.setOrientation(LinearLayout.HORIZONTAL);
         headerLayout.setGravity(Gravity.CENTER_VERTICAL);
 
         headerLogo = new ImageView(this);
         headerLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        loadLogoInto(headerLogo);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(40), dp(40));
-        logoLp.setMargins(0, 0, dp(8), 0);
+        loadAppLogoInto(headerLogo);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        logoLp.setMargins(0, 0, dp(10), 0);
         headerLayout.addView(headerLogo, logoLp);
 
         titleText = new TextView(this);
-        titleText.setTextSize(20);
+        titleText.setTextSize(23);
         titleText.setTypeface(null, Typeface.BOLD);
         titleText.setSingleLine(true);
-        titleText.setOnClickListener(v -> showLaunchOfferDialog());
-        headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f));
+        headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        LinearLayout rightBtns = new LinearLayout(this);
-        rightBtns.setOrientation(LinearLayout.HORIZONTAL);
-        rightBtns.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        rootLayout.addView(headerLayout);
+
+        // 2. BARRE D'OUTILS ALIGNÉE SOUS LE LOGO : HISTORIQUE | EXPORTER | OPTIONS
+        actionRowLayout = new LinearLayout(this);
+        actionRowLayout.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams actRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actRowLp.setMargins(0, dp(8), 0, dp(6));
 
         btnHistory = new Button(this);
-        btnHistory.setTextSize(11);
+        btnHistory.setTextSize(12);
         btnHistory.setAllCaps(false);
         btnHistory.setTypeface(null, Typeface.BOLD);
         btnHistory.setPadding(dp(6), dp(4), dp(6), dp(4));
-        LinearLayout.LayoutParams histLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
-        histLp.setMargins(0, 0, dp(4), 0);
         btnHistory.setOnClickListener(v -> showHistoryDialog());
-        rightBtns.addView(btnHistory, histLp);
+        LinearLayout.LayoutParams histLp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        histLp.setMargins(0, 0, dp(4), 0);
+        actionRowLayout.addView(btnHistory, histLp);
 
-        btnPdf = new Button(this);
-        btnPdf.setTextSize(11);
-        btnPdf.setAllCaps(false);
-        btnPdf.setTypeface(null, Typeface.BOLD);
-        btnPdf.setPadding(dp(6), dp(4), dp(6), dp(4));
-        LinearLayout.LayoutParams pdfLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
-        pdfLp.setMargins(0, 0, dp(4), 0);
-        btnPdf.setOnClickListener(v -> startPdfExport());
-        rightBtns.addView(btnPdf, pdfLp);
-
-        headerLayout.addView(rightBtns, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.6f));
-        rootLayout.addView(headerLayout);
-
-        // NOUVELLE LIGNE DÉDIÉE POUR LE BOUTON OPTIONS
-        actionRowLayout = new LinearLayout(this);
-        actionRowLayout.setOrientation(LinearLayout.HORIZONTAL);
-        actionRowLayout.setGravity(Gravity.END);
-        LinearLayout.LayoutParams actRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actRowLp.setMargins(0, dp(6), 0, dp(2));
+        btnExport = new Button(this);
+        btnExport.setTextSize(12);
+        btnExport.setAllCaps(false);
+        btnExport.setTypeface(null, Typeface.BOLD);
+        btnExport.setPadding(dp(6), dp(4), dp(6), dp(4));
+        btnExport.setOnClickListener(v -> showExportMenuDialog());
+        LinearLayout.LayoutParams expLp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        expLp.setMargins(dp(4), 0, dp(4), 0);
+        actionRowLayout.addView(btnExport, expLp);
 
         btnOptions = new Button(this);
         btnOptions.setTextSize(12);
         btnOptions.setAllCaps(false);
         btnOptions.setTypeface(null, Typeface.BOLD);
-        btnOptions.setPadding(dp(14), dp(4), dp(14), dp(4));
+        btnOptions.setPadding(dp(6), dp(4), dp(6), dp(4));
         btnOptions.setOnClickListener(v -> showOptionsDialog());
-        actionRowLayout.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)));
+        LinearLayout.LayoutParams optLp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        optLp.setMargins(dp(4), 0, 0, 0);
+        actionRowLayout.addView(btnOptions, optLp);
+
         rootLayout.addView(actionRowLayout, actRowLp);
 
+        // 3. SÉLECTEURS DE STOCK ET DE CATÉGORIE
         subHeaderLayout = new LinearLayout(this);
         subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        subLp.setMargins(0, dp(8), 0, dp(8));
+        subLp.setMargins(0, dp(2), 0, dp(8));
 
         btnStockSelector = new Button(this);
         btnStockSelector.setAllCaps(false);
@@ -788,6 +768,7 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(subHeaderLayout, subLp);
 
+        // 4. COMPTEURS KPI (3 CARTES)
         LinearLayout statsRow = new LinearLayout(this);
         statsRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams statsRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -847,6 +828,7 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(statsRow, statsRowLp);
 
+        // 5. BARRE DE RECHERCHE
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
         searchInput.setTextSize(14);
@@ -863,12 +845,13 @@ public class MainActivity extends AppCompatActivity {
         searchParams.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(searchInput, searchParams);
 
+        // 6. ZONE CENTRALE
         emptyContainer = new LinearLayout(this);
         emptyContainer.setOrientation(LinearLayout.VERTICAL);
         emptyContainer.setGravity(Gravity.CENTER);
         emptyLogo = new ImageView(this);
         emptyLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        loadLogoInto(emptyLogo);
+        loadAppLogoInto(emptyLogo);
         emptyLogo.setAlpha(0.22f);
         LinearLayout.LayoutParams emptyLogoLp = new LinearLayout.LayoutParams(dp(110), dp(110));
         emptyLogoLp.setMargins(0, 0, 0, dp(10));
@@ -888,6 +871,7 @@ public class MainActivity extends AppCompatActivity {
         listView.setAdapter(adapter);
         rootLayout.addView(listView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        // 7. BANDEAU TICKET EN COURS
         exitTotalBanner = new LinearLayout(this);
         exitTotalBanner.setOrientation(LinearLayout.HORIZONTAL);
         exitTotalBanner.setGravity(Gravity.CENTER_VERTICAL);
@@ -919,6 +903,7 @@ public class MainActivity extends AppCompatActivity {
         btnResetTotal.setTextColor(Color.WHITE);
         btnResetTotal.setBackground(createRoundedBg(Color.parseColor("#7F1D1D"), dp(8), dp(1), Color.parseColor("#F87171")));
         btnResetTotal.setOnClickListener(v -> {
+            archiveCurrentReceiptIfNotEmpty(0.0, true);
             currentReceipt.clear();
             lastExitTotal = 0.0;
             sessionExitTotal = 0.0;
@@ -928,67 +913,57 @@ public class MainActivity extends AppCompatActivity {
         exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(34), dp(32)));
         rootLayout.addView(exitTotalBanner, bannerLp);
 
+        // 8. BARRE DU BAS : BOUTON "TEST" EN BAS À GAUCHE + ENTRÉE + SORTIE
         bottomBarLayout = new LinearLayout(this);
         bottomBarLayout.setOrientation(LinearLayout.HORIZONTAL);
+        bottomBarLayout.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         actParams.setMargins(0, dp(6), 0, dp(2));
 
+        btnTestSim = new Button(this);
+        btnTestSim.setText("🧪 TEST");
+        btnTestSim.setTextSize(11);
+        btnTestSim.setAllCaps(false);
+        btnTestSim.setTypeface(null, Typeface.BOLD);
+        btnTestSim.setTextColor(Color.WHITE);
+        btnTestSim.setBackground(createRoundedBg(Color.parseColor("#7C3AED"), dp(12), dp(1), Color.parseColor("#C4B5FD")));
+        btnTestSim.setOnClickListener(v -> {
+            boolean cur = prefs.getBoolean("devBypassPro", false);
+            prefs.edit().putBoolean("devBypassPro", !cur).apply();
+            Toast.makeText(this, !cur ? "⭐ Simulation : Version Pro ACTIVÉE" : "🎁 Simulation : Retour en Essai gratuit", Toast.LENGTH_SHORT).show();
+            applyThemeAndLang();
+        });
+        btnTestSim.setOnLongClickListener(v -> {
+            prefs.edit().putBoolean("devBypassPro", false).putBoolean("isProUnlocked", false).apply();
+            showPaywallUI();
+            return true;
+        });
+        LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(dp(68), dp(52));
+        testLp.setMargins(0, 0, dp(6), 0);
+        bottomBarLayout.addView(btnTestSim, testLp);
+
         btnEntry = new Button(this);
-        btnEntry.setTextSize(16);
+        btnEntry.setTextSize(15);
         btnEntry.setTypeface(null, Typeface.BOLD);
         btnEntry.setTextColor(Color.WHITE);
         btnEntry.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(14), dp(2), Color.parseColor("#34D399")));
         btnEntry.setOnClickListener(v -> handleEntryAction());
         LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, dp(52), 1f);
-        btnInParams.setMargins(0, 0, dp(6), 0);
+        btnInParams.setMargins(0, 0, dp(5), 0);
         bottomBarLayout.addView(btnEntry, btnInParams);
 
         btnExit = new Button(this);
-        btnExit.setTextSize(16);
+        btnExit.setTextSize(15);
         btnExit.setTypeface(null, Typeface.BOLD);
         btnExit.setTextColor(Color.WHITE);
         btnExit.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(14), dp(2), Color.parseColor("#F87171")));
         btnExit.setOnClickListener(v -> handleExitAction());
         LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, dp(52), 1f);
-        btnOutParams.setMargins(dp(6), 0, 0, 0);
+        btnOutParams.setMargins(dp(5), 0, 0, 0);
         bottomBarLayout.addView(btnExit, btnOutParams);
 
         rootLayout.addView(bottomBarLayout, actParams);
         setContentView(rootLayout);
-    }
-
-    private void handleEntryAction() {
-        if (!isAccessAllowed()) { showPaywallUI(); return; }
-        if (useScanner) {
-            startBarcodeScan(true);
-        } else {
-            Product newProd = new Product();
-            newProd.barcode = "";
-            newProd.name = "";
-            newProd.quantity = 0;
-            newProd.imagePath = "";
-            newProd.stockName = currentStock;
-            if (!selectedCategoryFilter.equals("ALL") && categoriesList.contains(selectedCategoryFilter)) {
-                newProd.category = selectedCategoryFilter;
-            } else {
-                newProd.category = categoriesList.isEmpty() ? tr("uncategorized") : categoriesList.get(0);
-            }
-            newProd.price = 0.0;
-            showProductTransactionDialog(newProd, true, true, false);
-        }
-    }
-
-    private void handleExitAction() {
-        if (!isAccessAllowed()) { showPaywallUI(); return; }
-        if (useScanner) {
-            startBarcodeScan(false);
-        } else {
-            if (filteredInventory.isEmpty()) {
-                Toast.makeText(this, tr("not_in_stock"), Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, tr("tap_product_for_exit"), Toast.LENGTH_LONG).show();
-            }
-        }
     }
 
     private void applyThemeAndLang() {
@@ -1003,11 +978,16 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.setBackgroundColor(bgColor);
 
+        // Encadré du haut : affiche "Version Pro" si débloqué, sinon "Essai gratuit (X j) - Cliquez ici pour la version Pro"
+        trialBannerText.setVisibility(View.VISIBLE);
         if (isProUnlocked()) {
-            trialBannerText.setVisibility(View.GONE);
+            trialBannerText.setText(tr("pro_version_badge"));
+            trialBannerText.setTextColor(Color.parseColor("#34D399"));
+            trialBannerText.setBackground(createRoundedBg(Color.parseColor("#064E3B"), dp(8), dp(1), Color.parseColor("#10B981")));
         } else {
-            trialBannerText.setVisibility(View.VISIBLE);
-            trialBannerText.setText(String.format(Locale.getDefault(), tr("trial_banner_fmt"), getRemainingTrialDays(), formattedLaunchPrice));
+            trialBannerText.setText(String.format(Locale.getDefault(), tr("trial_banner_fmt"), getRemainingTrialDays()));
+            trialBannerText.setTextColor(Color.parseColor("#38BDF8"));
+            trialBannerText.setBackground(createRoundedBg(Color.parseColor("#0F172A"), dp(8), dp(1), Color.parseColor("#0284C7")));
         }
 
         SpannableString styledTitle = new SpannableString("OptiStock");
@@ -1019,9 +999,9 @@ public class MainActivity extends AppCompatActivity {
         btnHistory.setTextColor(textColor);
         btnHistory.setBackground(createRoundedBg(cardColor, dp(10), dp(1), borderSubtle));
 
-        btnPdf.setText(tr("pdf_btn"));
-        btnPdf.setTextColor(Color.WHITE);
-        btnPdf.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(10), dp(1), Color.parseColor("#38BDF8")));
+        btnExport.setText(tr("export_btn"));
+        btnExport.setTextColor(Color.WHITE);
+        btnExport.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(10), dp(1), Color.parseColor("#38BDF8")));
 
         btnOptions.setText(tr("options_title"));
         btnOptions.setTextColor(textColor);
@@ -1071,6 +1051,511 @@ public class MainActivity extends AppCompatActivity {
         filterList();
     }
 
+    // ==================== CENTRE D'EXPORTATION (STOCKS / SORTIES / TICKETS) ====================
+
+    private void showExportMenuDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(16), dp(20), dp(16));
+
+        AlertDialog[] holder = new AlertDialog[1];
+
+        Button bStocks = new Button(this);
+        bStocks.setText("📦 Exporter les stocks (PDF)");
+        bStocks.setAllCaps(false);
+        bStocks.setTextSize(14);
+        bStocks.setTypeface(null, Typeface.BOLD);
+        bStocks.setTextColor(Color.WHITE);
+        bStocks.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(12), dp(1), Color.parseColor("#38BDF8")));
+        bStocks.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            showExportStocksOrExitsDialog(true);
+        });
+        LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        lp1.setMargins(0, 0, 0, dp(10));
+        box.addView(bStocks, lp1);
+
+        Button bExits = new Button(this);
+        bExits.setText("🔴 Exporter les sorties (PDF)");
+        bExits.setAllCaps(false);
+        bExits.setTextSize(14);
+        bExits.setTypeface(null, Typeface.BOLD);
+        bExits.setTextColor(Color.WHITE);
+        bExits.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(12), dp(1), Color.parseColor("#F87171")));
+        bExits.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            showExportStocksOrExitsDialog(false);
+        });
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        lp2.setMargins(0, 0, 0, dp(10));
+        box.addView(bExits, lp2);
+
+        Button bReceipts = new Button(this);
+        bReceipts.setText("🧾 Exporter les tickets de caisse (PDF)");
+        bReceipts.setAllCaps(false);
+        bReceipts.setTextSize(14);
+        bReceipts.setTypeface(null, Typeface.BOLD);
+        bReceipts.setTextColor(Color.WHITE);
+        bReceipts.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(12), dp(1), Color.parseColor("#34D399")));
+        bReceipts.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            showExportReceiptsPeriodDialog();
+        });
+        LinearLayout.LayoutParams lp3 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        box.addView(bReceipts, lp3);
+
+        holder[0] = new AlertDialog.Builder(this)
+                .setTitle("📤 Que souhaitez-vous exporter ?")
+                .setView(box)
+                .setNegativeButton(tr("cancel"), null)
+                .create();
+        holder[0].show();
+    }
+
+    private void showExportStocksOrExitsDialog(boolean isStocksExport) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(14), dp(20), dp(10));
+        scroll.addView(box);
+
+        TextView stTitle = new TextView(this);
+        stTitle.setText("🏢 Sélectionnez le(s) stock(s) :");
+        stTitle.setTypeface(null, Typeface.BOLD);
+        stTitle.setPadding(0, 0, 0, dp(6));
+        box.addView(stTitle);
+
+        final List<CheckBox> stockBoxes = new ArrayList<>();
+        for (String st : stocksList) {
+            CheckBox cb = new CheckBox(this);
+            cb.setText(st);
+            cb.setChecked(st.equals(currentStock));
+            stockBoxes.add(cb);
+            box.addView(cb);
+        }
+
+        TextView catTitle = new TextView(this);
+        catTitle.setText("🏷️ Sélectionnez la ou les catégorie(s) :");
+        catTitle.setTypeface(null, Typeface.BOLD);
+        catTitle.setPadding(0, dp(14), 0, dp(6));
+        box.addView(catTitle);
+
+        final List<CheckBox> catBoxes = new ArrayList<>();
+        for (String cat : categoriesList) {
+            CheckBox cb = new CheckBox(this);
+            cb.setText(cat);
+            cb.setChecked(true);
+            catBoxes.add(cb);
+            box.addView(cb);
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(isStocksExport ? "📦 Exporter les stocks" : "🔴 Exporter les sorties")
+                .setView(scroll)
+                .setPositiveButton("📄 Générer PDF", (d, w) -> {
+                    pendingExportStocks.clear();
+                    for (CheckBox cb : stockBoxes) {
+                        if (cb.isChecked()) pendingExportStocks.add(cb.getText().toString());
+                    }
+                    pendingExportCats.clear();
+                    for (CheckBox cb : catBoxes) {
+                        if (cb.isChecked()) pendingExportCats.add(cb.getText().toString());
+                    }
+                    if (pendingExportStocks.isEmpty() || pendingExportCats.isEmpty()) {
+                        Toast.makeText(this, "Veuillez cocher au moins un stock et une catégorie.", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("application/pdf");
+                    String prefix = isStocksExport ? "Stocks_" : "Sorties_";
+                    intent.putExtra(Intent.EXTRA_TITLE, prefix + new SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.getDefault()).format(new Date()) + ".pdf");
+                    startActivityForResult(intent, isStocksExport ? REQ_EXPORT_STOCKS_PDF : REQ_EXPORT_EXITS_PDF);
+                })
+                .setNegativeButton(tr("cancel"), null)
+                .show();
+    }
+
+    private void showExportReceiptsPeriodDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(16), dp(20), dp(10));
+
+        TextView label = new TextView(this);
+        label.setText("📅 Choisissez la période des tickets de caisse :");
+        label.setTypeface(null, Typeface.BOLD);
+        label.setPadding(0, 0, 0, dp(10));
+        box.addView(label);
+
+        RadioGroup rg = new RadioGroup(this);
+        RadioButton rbDay = new RadioButton(this);
+        rbDay.setId(101);
+        rbDay.setText("Aujourd'hui (Tickets de la journée)");
+        rbDay.setChecked(true);
+        rg.addView(rbDay);
+
+        RadioButton rbWeek = new RadioButton(this);
+        rbWeek.setId(102);
+        rbWeek.setText("Cette semaine (7 derniers jours)");
+        rg.addView(rbWeek);
+
+        RadioButton rbMonth = new RadioButton(this);
+        rbMonth.setId(103);
+        rbMonth.setText("Ce mois-ci (30 derniers jours)");
+        rg.addView(rbMonth);
+
+        box.addView(rg);
+
+        new AlertDialog.Builder(this)
+                .setTitle("🧾 Exporter les tickets")
+                .setView(box)
+                .setPositiveButton("📄 Générer PDF", (d, w) -> {
+                    int checkedId = rg.getCheckedRadioButtonId();
+                    pendingReceiptsPeriod = (checkedId == 102) ? 1 : ((checkedId == 103) ? 2 : 0);
+                    Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("application/pdf");
+                    String pName = pendingReceiptsPeriod == 0 ? "Jour_" : (pendingReceiptsPeriod == 1 ? "Semaine_" : "Mois_");
+                    intent.putExtra(Intent.EXTRA_TITLE, "Tickets_" + pName + new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date()) + ".pdf");
+                    startActivityForResult(intent, REQ_EXPORT_RECEIPTS_PERIOD_PDF);
+                })
+                .setNegativeButton(tr("cancel"), null)
+                .show();
+    }
+
+    // En-tête commun pour tous les PDF avec le logo et le nom de l'entreprise de l'utilisateur
+    private int drawCompanyPdfHeader(Canvas canvas, Paint paint, Paint linePaint, String docTitle, int pageWidth) {
+        int y = 45;
+        Bitmap userLogo = getUserCompanyLogoBitmap();
+        String compName = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim() : "OptiStock";
+
+        if (userLogo != null) {
+            canvas.drawBitmap(Bitmap.createScaledBitmap(userLogo, 44, 44, true), 40, y - 10, null);
+            paint.setTextSize(17f);
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            paint.setColor(Color.rgb(15, 23, 42));
+            canvas.drawText(compName, 94, y + 8, paint);
+            paint.setTextSize(12f);
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+            canvas.drawText(docTitle, 94, y + 25, paint);
+            y += 44;
+        } else {
+            paint.setTextSize(18f);
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            paint.setColor(Color.rgb(15, 23, 42));
+            canvas.drawText(compName + " — " + docTitle, 40, y, paint);
+            y += 22;
+        }
+
+        paint.setTextSize(9.5f);
+        paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+        paint.setColor(Color.rgb(71, 85, 105));
+        String dateLine = "Date : " + new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date());
+        if (senderEmail != null && !senderEmail.isEmpty()) dateLine += "  |  " + senderEmail;
+        canvas.drawText(dateLine, 40, y, paint);
+        y += 12;
+        canvas.drawLine(40, y, pageWidth - 40, y, linePaint);
+        return y + 18;
+    }
+
+    private void generateFilteredStocksPdfToUri(Uri uri) {
+        try {
+            PdfDocument pdf = new PdfDocument();
+            Paint paint = new Paint();
+            Paint linePaint = new Paint();
+            linePaint.setColor(Color.LTGRAY);
+            linePaint.setStrokeWidth(1f);
+
+            int pageWidth = 595, pageHeight = 842, pageNumber = 1;
+            PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
+            PdfDocument.Page page = pdf.startPage(pageInfo);
+            Canvas canvas = page.getCanvas();
+
+            int y = drawCompanyPdfHeader(canvas, paint, linePaint, "État des Stocks", pageWidth);
+
+            paint.setColor(Color.BLACK);
+            paint.setTextSize(10f);
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            canvas.drawText("Photo", 40, y, paint);
+            canvas.drawText("Produit", 82, y, paint);
+            canvas.drawText("Stock", 250, y, paint);
+            canvas.drawText("Catégorie", 350, y, paint);
+            if (usePrices) canvas.drawText("Prix", 455, y, paint);
+            canvas.drawText("Qté", 515, y, paint);
+            y += 8; canvas.drawLine(40, y, 555, y, linePaint); y += 14;
+
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+            double totalStockValue = 0.0;
+            int totalUnits = 0;
+
+            for (Product p : inventory) {
+                if (!pendingExportStocks.contains(p.stockName)) continue;
+                String pCat = p.category != null ? p.category : tr("uncategorized");
+                if (!pendingExportCats.contains(pCat)) continue;
+
+                if (y > 760) {
+                    pdf.finishPage(page);
+                    pageNumber++;
+                    pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
+                    page = pdf.startPage(pageInfo);
+                    canvas = page.getCanvas();
+                    y = 50;
+                }
+                if (p.imagePath != null && !p.imagePath.isEmpty()) {
+                    Bitmap b = loadBitmapFromInternalStorage(p.imagePath);
+                    if (b != null) canvas.drawBitmap(Bitmap.createScaledBitmap(b, 28, 28, true), 40, y - 6, null);
+                }
+                canvas.drawText(p.name.length() > 26 ? p.name.substring(0, 24) + ".." : p.name, 82, y + 10, paint);
+                canvas.drawText(p.stockName.length() > 14 ? p.stockName.substring(0, 12) + ".." : p.stockName, 250, y + 10, paint);
+                canvas.drawText(pCat.length() > 14 ? pCat.substring(0, 12) + ".." : pCat, 350, y + 10, paint);
+                if (usePrices) {
+                    canvas.drawText(String.format(Locale.getDefault(), "%.2f €", p.price), 455, y + 10, paint);
+                    totalStockValue += p.price * p.quantity;
+                }
+                totalUnits += p.quantity;
+                paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+                canvas.drawText(String.valueOf(p.quantity), 515, y + 10, paint);
+                paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+                y += 32; canvas.drawLine(40, y - 6, 555, y - 6, linePaint);
+            }
+
+            y += 14;
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            String summary = "Total unités : " + totalUnits;
+            if (usePrices) summary += String.format(Locale.getDefault(), "   |   Valeur totale : %.2f €", totalStockValue);
+            canvas.drawText(summary, 40, y, paint);
+
+            pdf.finishPage(page);
+            OutputStream os = getContentResolver().openOutputStream(uri);
+            if (os != null) { pdf.writeTo(os); os.close(); }
+            pdf.close();
+            Toast.makeText(this, tr("pdf_ok"), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur PDF : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void generateFilteredExitsPdfToUri(Uri uri) {
+        try {
+            PdfDocument pdf = new PdfDocument();
+            Paint paint = new Paint();
+            Paint linePaint = new Paint();
+            linePaint.setColor(Color.LTGRAY);
+            linePaint.setStrokeWidth(1f);
+
+            int pageWidth = 595, pageHeight = 842, pageNumber = 1;
+            PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
+            PdfDocument.Page page = pdf.startPage(pageInfo);
+            Canvas canvas = page.getCanvas();
+
+            int y = drawCompanyPdfHeader(canvas, paint, linePaint, " Relevé des Sorties de Stock", pageWidth);
+
+            paint.setColor(Color.BLACK);
+            paint.setTextSize(10f);
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            canvas.drawText("Date", 40, y, paint);
+            canvas.drawText("Produit", 130, y, paint);
+            canvas.drawText("Stock", 295, y, paint);
+            canvas.drawText("Catégorie", 390, y, paint);
+            canvas.drawText("Qté", 475, y, paint);
+            canvas.drawText("Total", 515, y, paint);
+            y += 8; canvas.drawLine(40, y, 555, y, linePaint); y += 14;
+
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+            SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yy HH:mm", Locale.getDefault());
+            int totalOutUnits = 0;
+            double totalOutVal = 0.0;
+
+            for (Movement m : movementsHistory) {
+                if (!"OUT".equals(m.type)) continue;
+                if (!pendingExportStocks.contains(m.stockName)) continue;
+                String mCat = (m.category != null && !m.category.isEmpty()) ? m.category : findCategoryForBarcode(m.barcode);
+                if (!pendingExportCats.contains(mCat)) continue;
+
+                if (y > 760) {
+                    pdf.finishPage(page);
+                    pageNumber++;
+                    pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
+                    page = pdf.startPage(pageInfo);
+                    canvas = page.getCanvas();
+                    y = 50;
+                }
+                canvas.drawText(sdf.format(new Date(m.timestamp)), 40, y, paint);
+                String pName = m.productName != null ? m.productName : m.barcode;
+                canvas.drawText(pName.length() > 24 ? pName.substring(0, 22) + ".." : pName, 130, y, paint);
+                canvas.drawText(m.stockName.length() > 14 ? m.stockName.substring(0, 12) + ".." : m.stockName, 295, y, paint);
+                canvas.drawText(mCat.length() > 14 ? mCat.substring(0, 12) + ".." : mCat, 390, y, paint);
+                canvas.drawText("-" + m.quantity, 475, y, paint);
+                double lineVal = m.quantity * m.unitPrice;
+                canvas.drawText(String.format(Locale.getDefault(), "%.2f €", lineVal), 515, y, paint);
+
+                totalOutUnits += m.quantity;
+                totalOutVal += lineVal;
+                y += 20; canvas.drawLine(40, y - 6, 555, y - 6, linePaint);
+            }
+
+            y += 14;
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            canvas.drawText(String.format(Locale.getDefault(), "Total articles sortis : %d   |   Montant total des sorties : %.2f €", totalOutUnits, totalOutVal), 40, y, paint);
+
+            pdf.finishPage(page);
+            OutputStream os = getContentResolver().openOutputStream(uri);
+            if (os != null) { pdf.writeTo(os); os.close(); }
+            pdf.close();
+            Toast.makeText(this, tr("pdf_ok"), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur PDF Sorties : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void generateReceiptsPeriodPdfToUri(Uri uri) {
+        try {
+            // Si un ticket est actuellement ouvert/en cours et qu'aucun ticket n'a encore été archivé, on l'inclut
+            long now = System.currentTimeMillis();
+            long cutoffMs;
+            String periodLabel;
+            if (pendingReceiptsPeriod == 0) {
+                Calendar cal = Calendar.getInstance();
+                cal.set(Calendar.HOUR_OF_DAY, 0);
+                cal.set(Calendar.MINUTE, 0);
+                cal.set(Calendar.SECOND, 0);
+                cutoffMs = cal.getTimeInMillis();
+                periodLabel = "Tickets de la journée";
+            } else if (pendingReceiptsPeriod == 1) {
+                cutoffMs = now - (7L * 24L * 60L * 60L * 1000L);
+                periodLabel = "Tickets de la semaine (7 derniers jours)";
+            } else {
+                cutoffMs = now - (30L * 24L * 60L * 60L * 1000L);
+                periodLabel = "Tickets du mois (30 derniers jours)";
+            }
+
+            List<SavedReceipt> listToExport = new ArrayList<>();
+            if (!currentReceipt.isEmpty()) {
+                SavedReceipt live = createSavedReceiptObject(0.0, true);
+                listToExport.add(live);
+            }
+            for (SavedReceipt sr : savedReceiptsHistory) {
+                if (sr.timestamp >= cutoffMs) {
+                    listToExport.add(sr);
+                }
+            }
+
+            PdfDocument pdf = new PdfDocument();
+            Paint paint = new Paint();
+            Paint linePaint = new Paint();
+            linePaint.setColor(Color.LTGRAY);
+            linePaint.setStrokeWidth(1f);
+
+            int pageWidth = 595, pageHeight = 842, pageNumber = 1;
+            PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
+            PdfDocument.Page page = pdf.startPage(pageInfo);
+            Canvas canvas = page.getCanvas();
+
+            int y = drawCompanyPdfHeader(canvas, paint, linePaint, periodLabel, pageWidth);
+            paint.setColor(Color.BLACK);
+            SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault());
+            double grandPeriodTotal = 0.0;
+
+            if (listToExport.isEmpty()) {
+                paint.setTextSize(12f);
+                canvas.drawText("Aucun ticket de caisse enregistré sur cette période.", 40, y + 20, paint);
+            } else {
+                for (int idx = 0; idx < listToExport.size(); idx++) {
+                    SavedReceipt sr = listToExport.get(idx);
+                    if (y > 700) {
+                        pdf.finishPage(page);
+                        pageNumber++;
+                        pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
+                        page = pdf.startPage(pageInfo);
+                        canvas = page.getCanvas();
+                        y = 50;
+                    }
+                    paint.setTextSize(11f);
+                    paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+                    canvas.drawText("🧾 Ticket #" + (listToExport.size() - idx) + " — " + sdf.format(new Date(sr.timestamp)) + " (" + sr.stockName + ")", 40, y, paint);
+                    y += 16;
+
+                    paint.setTextSize(10f);
+                    paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+                    for (ReceiptItem ri : sr.items) {
+                        if (y > 770) {
+                            pdf.finishPage(page);
+                            pageNumber++;
+                            pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
+                            page = pdf.startPage(pageInfo);
+                            canvas = page.getCanvas();
+                            y = 50;
+                        }
+                        canvas.drawText("• " + ri.name, 55, y, paint);
+                        canvas.drawText(String.format(Locale.getDefault(), "%d x %.2f € = %.2f €", ri.quantity, ri.unitPrice, ri.quantity * ri.unitPrice), 360, y, paint);
+                        y += 15;
+                    }
+                    paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+                    canvas.drawText(String.format(Locale.getDefault(), "Total Ticket : %.2f €", sr.totalAmount), 360, y, paint);
+                    grandPeriodTotal += sr.totalAmount;
+                    y += 12;
+                    canvas.drawLine(40, y, 555, y, linePaint);
+                    y += 18;
+                }
+
+                y += 10;
+                paint.setTextSize(13f);
+                paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+                canvas.drawText(String.format(Locale.getDefault(), "CHIFFRE D'AFFAIRES TOTAL (%d tickets) : %.2f €", listToExport.size(), grandPeriodTotal), 40, y, paint);
+            }
+
+            pdf.finishPage(page);
+            OutputStream os = getContentResolver().openOutputStream(uri);
+            if (os != null) { pdf.writeTo(os); os.close(); }
+            pdf.close();
+            Toast.makeText(this, tr("pdf_ok"), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur PDF Tickets : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private String findCategoryForBarcode(String barcode) {
+        if (barcode != null) {
+            for (Product p : inventory) {
+                if (barcode.equalsIgnoreCase(p.barcode) && p.category != null) return p.category;
+            }
+        }
+        return categoriesList.isEmpty() ? tr("uncategorized") : categoriesList.get(0);
+    }
+
+    private SavedReceipt createSavedReceiptObject(double discountVal, boolean isPercent) {
+        SavedReceipt sr = new SavedReceipt();
+        sr.timestamp = System.currentTimeMillis();
+        sr.stockName = currentStock;
+        double sub = 0.0;
+        for (ReceiptItem item : currentReceipt) {
+            ReceiptItem copy = new ReceiptItem();
+            copy.barcode = item.barcode;
+            copy.name = item.name;
+            copy.quantity = item.quantity;
+            copy.unitPrice = item.unitPrice;
+            sr.items.add(copy);
+            sub += item.quantity * item.unitPrice;
+        }
+        double disc = isPercent ? sub * (discountVal / 100.0) : discountVal;
+        disc = Math.max(0.0, Math.min(sub, disc));
+        sr.discountAmount = disc;
+        sr.totalAmount = sub - disc;
+        sr.receiptText = buildReceiptText(discountVal, isPercent);
+        return sr;
+    }
+
+    private void archiveCurrentReceiptIfNotEmpty(double discountVal, boolean isPercent) {
+        if (currentReceipt.isEmpty()) return;
+        SavedReceipt sr = createSavedReceiptObject(discountVal, isPercent);
+        savedReceiptsHistory.add(0, sr);
+        while (savedReceiptsHistory.size() > 300) {
+            savedReceiptsHistory.remove(savedReceiptsHistory.size() - 1);
+        }
+    }
+
+    // ==================== STATISTIQUES & HISTORIQUE ====================
+
     private void updateStats() {
         int totalRefs = 0, totalUnits = 0, lowCount = 0;
         for (Product p : inventory) {
@@ -1103,13 +1588,14 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void recordMovement(String type, String barcode, String productName, int qty, String stockName, double unitPrice) {
+    private void recordMovement(String type, String barcode, String productName, String category, int qty, String stockName, double unitPrice) {
         if (qty <= 0) return;
         Movement m = new Movement();
         m.timestamp = System.currentTimeMillis();
         m.type = type;
         m.barcode = barcode;
         m.productName = productName;
+        m.category = category;
         m.quantity = qty;
         m.stockName = stockName;
         m.unitPrice = unitPrice;
@@ -1204,14 +1690,15 @@ public class MainActivity extends AppCompatActivity {
     private void generateHistoryCsvToUri(Uri uri) {
         try {
             StringBuilder sb = new StringBuilder();
-            sb.append("\uFEFFDate;Type;Stock;Code;Produit;Quantite;Prix_Unitaire;Total\n");
+            sb.append("\uFEFFDate;Type;Stock;Categorie;Code;Produit;Quantite;Prix_Unitaire;Total\n");
             SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault());
             for (Movement m : movementsHistory) {
                 String typeStr = "IN".equals(m.type) ? "ENTREE" : "SORTIE";
                 String cleanName = m.productName != null ? m.productName.replace(";", ",") : "";
                 String cleanStock = m.stockName != null ? m.stockName.replace(";", ",") : "";
-                sb.append(String.format(Locale.getDefault(), "%s;%s;%s;%s;%s;%d;%.2f;%.2f\n",
-                        sdf.format(new Date(m.timestamp)), typeStr, cleanStock, m.barcode, cleanName, m.quantity, m.unitPrice, m.quantity * m.unitPrice));
+                String cleanCat = m.category != null ? m.category.replace(";", ",") : "";
+                sb.append(String.format(Locale.getDefault(), "%s;%s;%s;%s;%s;%s;%d;%.2f;%.2f\n",
+                        sdf.format(new Date(m.timestamp)), typeStr, cleanStock, cleanCat, m.barcode, cleanName, m.quantity, m.unitPrice, m.quantity * m.unitPrice));
             }
             OutputStream os = getContentResolver().openOutputStream(uri);
             if (os != null) {
@@ -1224,9 +1711,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ==================== TICKET DE CAISSE AVEC LOGO & NOM ENTREPRISE ====================
+
     private String buildReceiptText(double discountVal, boolean isPercent) {
         StringBuilder sb = new StringBuilder();
-        String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
+        String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "ENTREPRISE";
         sb.append("================================\n");
         sb.append("      ").append(title).append("\n");
         if (senderEmail != null && !senderEmail.isEmpty()) {
@@ -1316,14 +1805,31 @@ public class MainActivity extends AppCompatActivity {
 
         box.addView(discRow, discRowLp);
 
+        // Carte du Ticket de Caisse incluant le Logo de l'entreprise de l'utilisateur en haut
+        LinearLayout paperTicketCard = new LinearLayout(this);
+        paperTicketCard.setOrientation(LinearLayout.VERTICAL);
+        paperTicketCard.setGravity(Gravity.CENTER_HORIZONTAL);
+        paperTicketCard.setBackground(createRoundedBg(Color.parseColor("#F8FAFC"), dp(10), dp(1), Color.parseColor("#CBD5E1")));
+        paperTicketCard.setPadding(dp(14), dp(12), dp(14), dp(12));
+
+        Bitmap userLogo = getUserCompanyLogoBitmap();
+        if (userLogo != null) {
+            ImageView ticketLogoView = new ImageView(this);
+            ticketLogoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            ticketLogoView.setImageBitmap(userLogo);
+            LinearLayout.LayoutParams tLogoLp = new LinearLayout.LayoutParams(dp(64), dp(64));
+            tLogoLp.setMargins(0, 0, 0, dp(6));
+            paperTicketCard.addView(ticketLogoView, tLogoLp);
+        }
+
         TextView ticketView = new TextView(this);
         ticketView.setText(buildReceiptText(0.0, true));
         ticketView.setTypeface(Typeface.MONOSPACE);
         ticketView.setTextSize(12);
         ticketView.setTextColor(Color.parseColor("#0F172A"));
-        ticketView.setBackground(createRoundedBg(Color.parseColor("#F8FAFC"), dp(10), dp(1), Color.parseColor("#CBD5E1")));
-        ticketView.setPadding(dp(14), dp(12), dp(14), dp(12));
-        box.addView(ticketView);
+        paperTicketCard.addView(ticketView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        box.addView(paperTicketCard);
 
         Runnable refreshTicketPreview = () -> {
             double v = 0.0;
@@ -1347,7 +1853,9 @@ public class MainActivity extends AppCompatActivity {
         btnReceiptPdf.setOnClickListener(v -> {
             pendingReceiptDiscountVal = discVal[0];
             pendingReceiptDiscountPct = discIsPct[0];
-            startReceiptPdfExport();
+            archiveCurrentReceiptIfNotEmpty(discVal[0], discIsPct[0]);
+            saveData();
+            startSingleReceiptPdfExport();
         });
 
         TextView senderInfoTv = new TextView(this);
@@ -1438,6 +1946,7 @@ public class MainActivity extends AppCompatActivity {
                 .setView(scroll)
                 .setPositiveButton(tr("send_email_btn"), null)
                 .setNeutralButton(tr("clear_receipt_btn"), (d, w) -> {
+                    archiveCurrentReceiptIfNotEmpty(discVal[0], discIsPct[0]);
                     currentReceipt.clear();
                     lastExitTotal = 0.0;
                     sessionExitTotal = 0.0;
@@ -1457,8 +1966,9 @@ public class MainActivity extends AppCompatActivity {
                 }
                 if (!clientEmails.contains(targetEmail)) {
                     clientEmails.add(0, targetEmail);
-                    saveData();
                 }
+                archiveCurrentReceiptIfNotEmpty(discVal[0], discIsPct[0]);
+                saveData();
                 String subject = "Ticket de caisse - " + (shopName.isEmpty() ? "OptiStock" : shopName);
                 String body = buildReceiptText(discVal[0], discIsPct[0]);
                 dialog.dismiss();
@@ -1469,15 +1979,15 @@ public class MainActivity extends AppCompatActivity {
         dialog.show();
     }
 
-    private void startReceiptPdfExport() {
+    private void startSingleReceiptPdfExport() {
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("application/pdf");
         intent.putExtra(Intent.EXTRA_TITLE, "Ticket_" + new SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.getDefault()).format(new Date()) + ".pdf");
-        startActivityForResult(intent, REQ_CREATE_RECEIPT_PDF);
+        startActivityForResult(intent, REQ_CREATE_SINGLE_RECEIPT_PDF);
     }
 
-    private void generateReceiptPdfToUri(Uri uri, double discountVal, boolean isPercent) {
+    private void generateSingleReceiptPdfToUri(Uri uri, double discountVal, boolean isPercent) {
         try {
             PdfDocument pdf = new PdfDocument();
             Paint paint = new Paint();
@@ -1490,21 +2000,15 @@ public class MainActivity extends AppCompatActivity {
             PdfDocument.Page page = pdf.startPage(pageInfo);
             Canvas canvas = page.getCanvas();
 
-            Bitmap logoBmp = null;
-            if (customLogoPath != null && !customLogoPath.isEmpty()) {
-                logoBmp = loadBitmapFromInternalStorage(customLogoPath);
-            }
-            if (logoBmp == null) {
-                int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
-                if (resId != 0) logoBmp = BitmapFactory.decodeResource(getResources(), resId);
-            }
-            if (logoBmp != null) {
-                canvas.drawBitmap(Bitmap.createScaledBitmap(logoBmp, 36, 36, true), 30, y - 10, null);
-                canvas.drawText((shopName != null && !shopName.isEmpty()) ? shopName.toUpperCase() : "OPTISTOCK", 75, y + 12, paint);
-                y += 35;
+            Bitmap userLogo = getUserCompanyLogoBitmap();
+            String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "ENTREPRISE";
+            paint.setTextSize(17f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
+
+            if (userLogo != null) {
+                canvas.drawBitmap(Bitmap.createScaledBitmap(userLogo, 40, 40, true), 30, y - 12, null);
+                canvas.drawText(title, 80, y + 12, paint);
+                y += 38;
             } else {
-                String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
-                paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
                 canvas.drawText(title, 30, y, paint);
                 y += 22;
             }
@@ -1563,7 +2067,7 @@ public class MainActivity extends AppCompatActivity {
 
             y += 28;
             paint.setTextSize(9f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
-            canvas.drawText("Merci de votre confiance • Généré par OptiStock (GoDev)", 30, y, paint);
+            canvas.drawText("Merci de votre confiance !", 30, y, paint);
 
             pdf.finishPage(page);
             OutputStream os = getContentResolver().openOutputStream(uri);
@@ -1650,7 +2154,7 @@ public class MainActivity extends AppCompatActivity {
             writer.println("DATA");
             reader.readLine();
 
-            writer.println("From: " + shopName + " <" + fromUser + ">");
+            writer.println("From: " + (shopName.isEmpty() ? "OptiStock" : shopName) + " <" + fromUser + ">");
             writer.println("To: <" + toMail + ">");
             writer.println("Subject: " + subject);
             writer.println("Content-Type: text/plain; charset=UTF-8");
@@ -1665,6 +2169,8 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
     }
+
+    // ==================== STOCKS, CATÉGORIES & OPTIONS ====================
 
     private void showStockPopupMenu(View anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
@@ -1819,14 +2325,15 @@ public class MainActivity extends AppCompatActivity {
 
         EditText shopInput = new EditText(this);
         shopInput.setText(shopName);
-        shopInput.setHint("Ex: Mon Entreprise");
+        shopInput.setHint("Ex: Ma Boutique / Mon Entreprise");
         shopInput.setSingleLine(true);
         box.addView(shopInput);
 
+        // MINIATURE DU LOGO DE L'UTILISATEUR À CÔTÉ DU BOUTON "CHOISIR UN LOGO"
         TextView logoSecTv = new TextView(this);
         logoSecTv.setText(tr("opt_custom_logo"));
         logoSecTv.setTypeface(null, Typeface.BOLD);
-        logoSecTv.setPadding(0, dp(12), 0, dp(4));
+        logoSecTv.setPadding(0, dp(12), 0, dp(6));
         box.addView(logoSecTv);
 
         LinearLayout logoPickRow = new LinearLayout(this);
@@ -1836,14 +2343,15 @@ public class MainActivity extends AppCompatActivity {
         tempCustomLogoPath = customLogoPath;
         optionsLogoPreview = new ImageView(this);
         optionsLogoPreview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        optionsLogoPreview.setBackground(createRoundedBg(Color.parseColor("#CBD5E1"), dp(8)));
+        optionsLogoPreview.setBackground(createRoundedBg(Color.parseColor("#1E293B"), dp(10), dp(1), Color.parseColor("#38BDF8")));
         if (!tempCustomLogoPath.isEmpty()) {
             Bitmap b = loadBitmapFromInternalStorage(tempCustomLogoPath);
             if (b != null) optionsLogoPreview.setImageBitmap(b);
+            else optionsLogoPreview.setImageResource(android.R.drawable.ic_menu_gallery);
         } else {
-            loadLogoInto(optionsLogoPreview);
+            optionsLogoPreview.setImageResource(android.R.drawable.ic_menu_gallery);
         }
-        LinearLayout.LayoutParams oImgLp = new LinearLayout.LayoutParams(dp(50), dp(50));
+        LinearLayout.LayoutParams oImgLp = new LinearLayout.LayoutParams(dp(56), dp(56));
         oImgLp.setMargins(0, 0, dp(12), 0);
         logoPickRow.addView(optionsLogoPreview, oImgLp);
 
@@ -1854,13 +2362,13 @@ public class MainActivity extends AppCompatActivity {
             Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
             startActivityForResult(intent, REQ_PICK_CUSTOM_LOGO);
         });
-        logoPickRow.addView(btnPickLogo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)));
+        logoPickRow.addView(btnPickLogo, new LinearLayout.LayoutParams(0, dp(42), 1f));
         box.addView(logoPickRow);
 
         TextView senderTv = new TextView(this);
         senderTv.setText(tr("opt_sender_email"));
         senderTv.setTypeface(null, Typeface.BOLD);
-        senderTv.setPadding(0, dp(10), 0, 0);
+        senderTv.setPadding(0, dp(12), 0, 0);
         box.addView(senderTv);
 
         EditText senderInput = new EditText(this);
@@ -1913,7 +2421,6 @@ public class MainActivity extends AppCompatActivity {
                         lowStockThreshold = Math.max(0, Integer.parseInt(threshInput.getText().toString().trim()));
                     } catch (Exception ignored) {}
                     shopName = shopInput.getText().toString().trim();
-                    if (shopName.isEmpty()) shopName = "OptiStock";
                     customLogoPath = tempCustomLogoPath;
                     senderEmail = senderInput.getText().toString().trim();
                     senderAppPass = passInput.getText().toString().trim();
@@ -1946,13 +2453,14 @@ public class MainActivity extends AppCompatActivity {
         try {
             saveData();
             JSONObject backup = new JSONObject();
-            backup.put("version", 3);
+            backup.put("version", 4);
             backup.put("exportedAt", System.currentTimeMillis());
             backup.put("inventory_json", prefs.getString("inventory_json", "[]"));
             backup.put("stocks_json", prefs.getString("stocks_json", "[]"));
             backup.put("cats_json", prefs.getString("cats_json", "[]"));
             backup.put("clients_json", prefs.getString("clients_json", "[]"));
             backup.put("history_json", prefs.getString("history_json", "[]"));
+            backup.put("saved_receipts_json", prefs.getString("saved_receipts_json", "[]"));
             backup.put("currentStock", currentStock);
             backup.put("shopName", shopName);
             backup.put("customLogoPath", customLogoPath);
@@ -2017,6 +2525,7 @@ public class MainActivity extends AppCompatActivity {
             if (backup.has("cats_json")) ed.putString("cats_json", backup.getString("cats_json"));
             if (backup.has("clients_json")) ed.putString("clients_json", backup.getString("clients_json"));
             if (backup.has("history_json")) ed.putString("history_json", backup.getString("history_json"));
+            if (backup.has("saved_receipts_json")) ed.putString("saved_receipts_json", backup.getString("saved_receipts_json"));
             if (backup.has("currentStock")) ed.putString("currentStock", backup.getString("currentStock"));
             if (backup.has("shopName")) {
                 shopName = backup.getString("shopName");
@@ -2042,6 +2551,42 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, tr("restore_ok"), Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             Toast.makeText(this, "Erreur restauration : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // ==================== SCAN & TRANSACTIONS PRODUITS ====================
+
+    private void handleEntryAction() {
+        if (!isAccessAllowed()) { showPaywallUI(); return; }
+        if (useScanner) {
+            startBarcodeScan(true);
+        } else {
+            Product newProd = new Product();
+            newProd.barcode = "";
+            newProd.name = "";
+            newProd.quantity = 0;
+            newProd.imagePath = "";
+            newProd.stockName = currentStock;
+            if (!selectedCategoryFilter.equals("ALL") && categoriesList.contains(selectedCategoryFilter)) {
+                newProd.category = selectedCategoryFilter;
+            } else {
+                newProd.category = categoriesList.isEmpty() ? tr("uncategorized") : categoriesList.get(0);
+            }
+            newProd.price = 0.0;
+            showProductTransactionDialog(newProd, true, true, false);
+        }
+    }
+
+    private void handleExitAction() {
+        if (!isAccessAllowed()) { showPaywallUI(); return; }
+        if (useScanner) {
+            startBarcodeScan(false);
+        } else {
+            if (filteredInventory.isEmpty()) {
+                Toast.makeText(this, tr("not_in_stock"), Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, tr("tap_product_for_exit"), Toast.LENGTH_LONG).show();
+            }
         }
     }
 
@@ -2418,11 +2963,11 @@ public class MainActivity extends AppCompatActivity {
             if (doEntry) {
                 int added = Math.max(0, delta);
                 targetProduct.quantity += added;
-                recordMovement("IN", targetProduct.barcode, targetProduct.name, added, currentStock, targetProduct.price);
+                recordMovement("IN", targetProduct.barcode, targetProduct.name, targetProduct.category, added, currentStock, targetProduct.price);
             } else {
                 int actualRemoved = Math.min(targetProduct.quantity, Math.max(0, delta));
                 targetProduct.quantity = Math.max(0, targetProduct.quantity - delta);
-                recordMovement("OUT", targetProduct.barcode, targetProduct.name, actualRemoved, currentStock, targetProduct.price);
+                recordMovement("OUT", targetProduct.barcode, targetProduct.name, targetProduct.category, actualRemoved, currentStock, targetProduct.price);
                 if (usePrices && actualRemoved > 0) {
                     lastExitTotal = actualRemoved * targetProduct.price;
                     addOrUpdateReceiptItem(targetProduct.barcode, targetProduct.name, actualRemoved, targetProduct.price);
@@ -2489,9 +3034,9 @@ public class MainActivity extends AppCompatActivity {
             if (p.imagePath != null && !p.imagePath.isEmpty()) {
                 Bitmap b = loadBitmapFromInternalStorage(p.imagePath);
                 if (b != null) img.setImageBitmap(b);
-                else loadLogoInto(img);
+                else loadAppLogoInto(img);
             } else {
-                loadLogoInto(img);
+                loadAppLogoInto(img);
             }
             LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(54), dp(54));
             imgLp.setMargins(0, 0, dp(12), 0);
@@ -2570,13 +3115,46 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
 
-    private void startPdfExport() {
-        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("application/pdf");
-        intent.putExtra(Intent.EXTRA_TITLE, "OptiStock_" + currentStock.replaceAll("\\s+", "_") + "_" + new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date()) + ".pdf");
-        startActivityForResult(intent, REQ_CREATE_PDF);
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != Activity.RESULT_OK || data == null) return;
+        if (requestCode == REQ_EXPORT_STOCKS_PDF && data.getData() != null) {
+            generateFilteredStocksPdfToUri(data.getData());
+        } else if (requestCode == REQ_EXPORT_EXITS_PDF && data.getData() != null) {
+            generateFilteredExitsPdfToUri(data.getData());
+        } else if (requestCode == REQ_EXPORT_RECEIPTS_PERIOD_PDF && data.getData() != null) {
+            generateReceiptsPeriodPdfToUri(data.getData());
+        } else if (requestCode == REQ_CREATE_SINGLE_RECEIPT_PDF && data.getData() != null) {
+            generateSingleReceiptPdfToUri(data.getData(), pendingReceiptDiscountVal, pendingReceiptDiscountPct);
+        } else if (requestCode == REQ_EXPORT_BACKUP && data.getData() != null) {
+            generateBackupToUri(data.getData());
+        } else if (requestCode == REQ_IMPORT_BACKUP && data.getData() != null) {
+            restoreBackupFromUri(data.getData());
+        } else if (requestCode == REQ_EXPORT_HISTORY_CSV && data.getData() != null) {
+            generateHistoryCsvToUri(data.getData());
+        } else if (requestCode == REQ_PICK_CUSTOM_LOGO && data.getData() != null) {
+            try {
+                InputStream is = getContentResolver().openInputStream(data.getData());
+                Bitmap bmp = BitmapFactory.decodeStream(is);
+                if (is != null) is.close();
+                if (bmp != null) {
+                    tempCustomLogoPath = saveBitmapToInternalStorage(bmp);
+                    customLogoPath = tempCustomLogoPath;
+                    prefs.edit().putString("customLogoPath", customLogoPath).apply();
+                    if (optionsLogoPreview != null) optionsLogoPreview.setImageBitmap(bmp);
+                }
+            } catch (Exception ignored) {}
+        } else if (requestCode == REQ_TAKE_PHOTO && data.getExtras() != null) {
+            Bitmap photo = (Bitmap) data.getExtras().get("data");
+            if (photo != null) {
+                tempPhotoPath = saveBitmapToInternalStorage(photo);
+                if (currentPhotoPreview != null) currentPhotoPreview.setImageBitmap(photo);
+            }
+        }
     }
+
+    // ==================== PERSISTANCE & STOCKAGE INTERNE ====================
 
     private void saveData() {
         try {
@@ -2607,6 +3185,26 @@ public class MainActivity extends AppCompatActivity {
                 ro.put("unitPrice", ri.unitPrice);
                 recArr.put(ro);
             }
+            JSONArray savedRecsArr = new JSONArray();
+            for (SavedReceipt sr : savedReceiptsHistory) {
+                JSONObject so = new JSONObject();
+                so.put("timestamp", sr.timestamp);
+                so.put("stockName", sr.stockName);
+                so.put("totalAmount", sr.totalAmount);
+                so.put("discountAmount", sr.discountAmount);
+                so.put("receiptText", sr.receiptText);
+                JSONArray itemsArr = new JSONArray();
+                for (ReceiptItem ri : sr.items) {
+                    JSONObject io = new JSONObject();
+                    io.put("barcode", ri.barcode);
+                    io.put("name", ri.name);
+                    io.put("quantity", ri.quantity);
+                    io.put("unitPrice", ri.unitPrice);
+                    itemsArr.put(io);
+                }
+                so.put("items", itemsArr);
+                savedRecsArr.put(so);
+            }
             JSONArray histArr = new JSONArray();
             for (Movement m : movementsHistory) {
                 JSONObject mo = new JSONObject();
@@ -2614,6 +3212,7 @@ public class MainActivity extends AppCompatActivity {
                 mo.put("type", m.type);
                 mo.put("barcode", m.barcode);
                 mo.put("productName", m.productName);
+                mo.put("category", m.category != null ? m.category : "");
                 mo.put("quantity", m.quantity);
                 mo.put("stockName", m.stockName);
                 mo.put("unitPrice", m.unitPrice);
@@ -2625,6 +3224,7 @@ public class MainActivity extends AppCompatActivity {
                     .putString("cats_json", catArr.toString())
                     .putString("clients_json", clientArr.toString())
                     .putString("receipt_json", recArr.toString())
+                    .putString("saved_receipts_json", savedRecsArr.toString())
                     .putString("history_json", histArr.toString())
                     .putString("currentStock", currentStock)
                     .apply();
@@ -2672,6 +3272,33 @@ public class MainActivity extends AppCompatActivity {
             }
         } catch (Exception ignored) {}
 
+        savedReceiptsHistory.clear();
+        try {
+            JSONArray sArr = new JSONArray(prefs.getString("saved_receipts_json", "[]"));
+            for (int i = 0; i < sArr.length(); i++) {
+                JSONObject so = sArr.getJSONObject(i);
+                SavedReceipt sr = new SavedReceipt();
+                sr.timestamp = so.optLong("timestamp", System.currentTimeMillis());
+                sr.stockName = so.optString("stockName", stocksList.get(0));
+                sr.totalAmount = so.optDouble("totalAmount", 0.0);
+                sr.discountAmount = so.optDouble("discountAmount", 0.0);
+                sr.receiptText = so.optString("receiptText", "");
+                JSONArray itemsArr = so.optJSONArray("items");
+                if (itemsArr != null) {
+                    for (int j = 0; j < itemsArr.length(); j++) {
+                        JSONObject io = itemsArr.getJSONObject(j);
+                        ReceiptItem ri = new ReceiptItem();
+                        ri.barcode = io.optString("barcode", "");
+                        ri.name = io.optString("name", "");
+                        ri.quantity = io.optInt("quantity", 1);
+                        ri.unitPrice = io.optDouble("unitPrice", 0.0);
+                        sr.items.add(ri);
+                    }
+                }
+                savedReceiptsHistory.add(sr);
+            }
+        } catch (Exception ignored) {}
+
         movementsHistory.clear();
         try {
             JSONArray histArr = new JSONArray(prefs.getString("history_json", "[]"));
@@ -2682,6 +3309,7 @@ public class MainActivity extends AppCompatActivity {
                 m.type = mo.optString("type", "IN");
                 m.barcode = mo.optString("barcode", "");
                 m.productName = mo.optString("productName", "");
+                m.category = mo.optString("category", "");
                 m.quantity = mo.optInt("quantity", 0);
                 m.stockName = mo.optString("stockName", stocksList.get(0));
                 m.unitPrice = mo.optDouble("unitPrice", 0.0);
@@ -2731,7 +3359,7 @@ public class MainActivity extends AppCompatActivity {
             String fileName = "img_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 999) + ".jpg";
             File file = new File(getPhotosDir(), fileName);
             FileOutputStream fos = new FileOutputStream(file);
-            scaled.compress(Bitmap.CompressFormat.JPEG, 80, fos);
+            scaled.compress(Bitmap.CompressFormat.JPEG, 85, fos);
             fos.flush();
             fos.close();
             bitmapCache.put(fileName, scaled);
