@@ -145,10 +145,10 @@ public class MainActivity extends AppCompatActivity {
     private String senderEmail = "";
     private String senderAppPass = "";
     private String shopName = "OptiStock";
+    private String customLogoPath = "";
     private double lastExitTotal = 0.0;
     private double sessionExitTotal = 0.0;
 
-    // Monétisation : Essai gratuit 7 jours + Achat unique 4,99 € (Offre de lancement)
     private static final String SKU_PRO_LIFETIME = "optistock_lifetime_pro";
     private static final long TRIAL_DURATION_MS = 7L * 24L * 60L * 60L * 1000L;
     private BillingClient billingClient;
@@ -162,9 +162,11 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_IMPORT_BACKUP = 1004;
     private static final int REQ_CREATE_RECEIPT_PDF = 1005;
     private static final int REQ_EXPORT_HISTORY_CSV = 1006;
+    private static final int REQ_PICK_CUSTOM_LOGO = 1007;
 
-    private ImageView currentPhotoPreview;
+    private ImageView currentPhotoPreview, optionsLogoPreview;
     private String tempPhotoPath = "";
+    private String tempCustomLogoPath = "";
     private double pendingReceiptDiscountVal = 0.0;
     private boolean pendingReceiptDiscountPct = true;
 
@@ -190,6 +192,7 @@ public class MainActivity extends AppCompatActivity {
         senderEmail = prefs.getString("senderEmail", "");
         senderAppPass = prefs.getString("senderAppPass", "");
         shopName = prefs.getString("shopName", "OptiStock");
+        customLogoPath = prefs.getString("customLogoPath", "");
 
         initTrialTimestamp();
         initBilling();
@@ -463,6 +466,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadLogoInto(ImageView imgView) {
+        if (customLogoPath != null && !customLogoPath.isEmpty()) {
+            Bitmap bmp = loadBitmapFromInternalStorage(customLogoPath);
+            if (bmp != null) {
+                imgView.setImageBitmap(bmp);
+                return;
+            }
+        }
         int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
         if (resId != 0) {
             imgView.setImageResource(resId);
@@ -634,9 +644,11 @@ public class MainActivity extends AppCompatActivity {
         dict.put("client_search_hint", new String[]{"🔍 Chercher ou saisir l'e-mail du client...", "🔍 Search or type customer email...", "🔍 Buscar o escribir email del cliente..."});
         dict.put("send_email_btn", new String[]{"📧 Envoyer par mail", "📧 Send by email", "📧 Enviar por correo"});
         dict.put("clear_receipt_btn", new String[]{"🗑️ Vider", "🗑️ Clear", "🗑️ Vaciar"});
-        dict.put("opt_shop_name", new String[]{"Nom de la boutique / Entreprise :", "Shop / Company Name:", "Nombre de la tienda / Empresa:"});
+        dict.put("opt_shop_name", new String[]{"Nom de votre entreprise / Boutique :", "Company / Shop Name:", "Nombre de su empresa / Tienda:"});
+        dict.put("opt_custom_logo", new String[]{"Logo de l'entreprise (Factures, PDF et Tickets) :", "Company Logo (Invoices, PDFs and Receipts):", "Logo de la empresa:"});
+        dict.put("pick_logo_btn", new String[]{"🖼️ Choisir un logo", "🖼️ Choose logo", "🖼️ Elegir logo"});
         dict.put("opt_sender_email", new String[]{"Mon adresse e-mail liée (Expéditeur) :", "My linked email address (Sender):", "Mi correo vinculado (Remitente):"});
-        dict.put("opt_sender_pass", new String[]{"Clé / Mot de passe d'appli SMTP (Optionnel, pour envoi direct) :", "SMTP App Password (Optional, for silent sending):", "Contraseña de app SMTP (Opcional):"});
+        dict.put("opt_sender_pass", new String[]{"Clé / Mot de passe d'appli SMTP (Optionnel) :", "SMTP App Password (Optional):", "Contraseña de app SMTP (Opcional):"});
         dict.put("email_sent_ok", new String[]{"✅ Ticket envoyé automatiquement au client !", "✅ Receipt automatically sent to customer!", "✅ ¡Ticket enviado automáticamente al cliente!"});
         dict.put("email_invalid", new String[]{"Veuillez saisir une adresse e-mail client valide.", "Please enter a valid customer email.", "Ingrese un correo electrónico válido."});
         dict.put("saved_clients_label", new String[]{"👥 Registre clients (touchez pour sélectionner) :", "👥 Customer registry (tap to select):", "👥 Registro de clientes (toque para elegir):"});
@@ -675,7 +687,6 @@ public class MainActivity extends AppCompatActivity {
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setPadding(dp(12), dp(10), dp(12), dp(10));
 
-        // 0. BANDEAU D'ESSAI GRATUIT
         trialBannerText = new TextView(this);
         trialBannerText.setTextSize(11);
         trialBannerText.setTypeface(null, Typeface.BOLD);
@@ -688,7 +699,7 @@ public class MainActivity extends AppCompatActivity {
         trialLp.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(trialBannerText, trialLp);
 
-        // 1. EN-TÊTE AVEC LOGO EN HAUT À GAUCHE + HISTORIQUE + PDF + OPTIONS
+        // EN-TÊTE CORRIGÉ : TITRE FLUIDE ET ENTIER SANS COUPURE
         headerLayout = new LinearLayout(this);
         headerLayout.setOrientation(LinearLayout.HORIZONTAL);
         headerLayout.setGravity(Gravity.CENTER_VERTICAL);
@@ -703,40 +714,45 @@ public class MainActivity extends AppCompatActivity {
         titleText = new TextView(this);
         titleText.setTextSize(20);
         titleText.setTypeface(null, Typeface.BOLD);
+        titleText.setSingleLine(true);
         titleText.setOnClickListener(v -> showLaunchOfferDialog());
-        headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f));
+
+        LinearLayout rightBtns = new LinearLayout(this);
+        rightBtns.setOrientation(LinearLayout.HORIZONTAL);
+        rightBtns.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
 
         btnHistory = new Button(this);
         btnHistory.setTextSize(11);
         btnHistory.setAllCaps(false);
         btnHistory.setTypeface(null, Typeface.BOLD);
-        btnHistory.setPadding(dp(8), dp(4), dp(8), dp(4));
+        btnHistory.setPadding(dp(6), dp(4), dp(6), dp(4));
         LinearLayout.LayoutParams histLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
-        histLp.setMargins(0, 0, dp(5), 0);
+        histLp.setMargins(0, 0, dp(4), 0);
         btnHistory.setOnClickListener(v -> showHistoryDialog());
-        headerLayout.addView(btnHistory, histLp);
+        rightBtns.addView(btnHistory, histLp);
 
         btnPdf = new Button(this);
         btnPdf.setTextSize(11);
         btnPdf.setAllCaps(false);
         btnPdf.setTypeface(null, Typeface.BOLD);
-        btnPdf.setPadding(dp(8), dp(4), dp(8), dp(4));
+        btnPdf.setPadding(dp(6), dp(4), dp(6), dp(4));
         LinearLayout.LayoutParams pdfLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
-        pdfLp.setMargins(0, 0, dp(5), 0);
+        pdfLp.setMargins(0, 0, dp(4), 0);
         btnPdf.setOnClickListener(v -> startPdfExport());
-        headerLayout.addView(btnPdf, pdfLp);
+        rightBtns.addView(btnPdf, pdfLp);
 
         btnOptions = new Button(this);
         btnOptions.setTextSize(11);
         btnOptions.setAllCaps(false);
         btnOptions.setTypeface(null, Typeface.BOLD);
-        btnOptions.setPadding(dp(8), dp(4), dp(8), dp(4));
+        btnOptions.setPadding(dp(6), dp(4), dp(6), dp(4));
         btnOptions.setOnClickListener(v -> showOptionsDialog());
-        headerLayout.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
+        rightBtns.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
 
+        headerLayout.addView(rightBtns, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.8f));
         rootLayout.addView(headerLayout);
 
-        // 2. SÉLECTEURS DE STOCK ET DE CATÉGORIE
         subHeaderLayout = new LinearLayout(this);
         subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -764,7 +780,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(subHeaderLayout, subLp);
 
-        // 3. COMPTEURS KPI (3 CARTES : RÉFÉRENCES | TOTAL UNITÉS | STOCK BAS CLIQUABLE)
         LinearLayout statsRow = new LinearLayout(this);
         statsRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams statsRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -824,7 +839,6 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(statsRow, statsRowLp);
 
-        // 4. BARRE DE RECHERCHE
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
         searchInput.setTextSize(14);
@@ -841,7 +855,6 @@ public class MainActivity extends AppCompatActivity {
         searchParams.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(searchInput, searchParams);
 
-        // 5. ZONE CENTRALE : FILIGRANE OU LISTE
         emptyContainer = new LinearLayout(this);
         emptyContainer.setOrientation(LinearLayout.VERTICAL);
         emptyContainer.setGravity(Gravity.CENTER);
@@ -867,7 +880,6 @@ public class MainActivity extends AppCompatActivity {
         listView.setAdapter(adapter);
         rootLayout.addView(listView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // 6. BANDEAU DU TICKET DE CAISSE EN COURS
         exitTotalBanner = new LinearLayout(this);
         exitTotalBanner.setOrientation(LinearLayout.HORIZONTAL);
         exitTotalBanner.setGravity(Gravity.CENTER_VERTICAL);
@@ -908,7 +920,6 @@ public class MainActivity extends AppCompatActivity {
         exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(34), dp(32)));
         rootLayout.addView(exitTotalBanner, bannerLp);
 
-        // 7. BARRE D'ACTIONS EN BAS SOUS LE POUCE
         bottomBarLayout = new LinearLayout(this);
         bottomBarLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1084,8 +1095,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ==================== HISTORIQUE DES MOUVEMENTS ====================
-
     private void recordMovement(String type, String barcode, String productName, int qty, String stockName, double unitPrice) {
         if (qty <= 0) return;
         Movement m = new Movement();
@@ -1206,8 +1215,6 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Erreur CSV : " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
-
-    // ==================== TICKET DE CAISSE (REMISE + PDF + MAIL) ====================
 
     private String buildReceiptText(double discountVal, boolean isPercent) {
         StringBuilder sb = new StringBuilder();
@@ -1475,11 +1482,27 @@ public class MainActivity extends AppCompatActivity {
             PdfDocument.Page page = pdf.startPage(pageInfo);
             Canvas canvas = page.getCanvas();
 
-            String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
-            paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
-            canvas.drawText(title, 30, y, paint);
+            // Intégration du logo d'entreprise sur le ticket PDF s'il existe
+            Bitmap logoBmp = null;
+            if (customLogoPath != null && !customLogoPath.isEmpty()) {
+                logoBmp = loadBitmapFromInternalStorage(customLogoPath);
+            }
+            if (logoBmp == null) {
+                int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
+                if (resId != 0) logoBmp = BitmapFactory.decodeResource(getResources(), resId);
+            }
+            if (logoBmp != null) {
+                canvas.drawBitmap(Bitmap.createScaledBitmap(logoBmp, 36, 36, true), 30, y - 10, null);
+                canvas.drawText((shopName != null && !shopName.isEmpty()) ? shopName.toUpperCase() : "OPTISTOCK", 75, y + 12, paint);
+                y += 35;
+            } else {
+                String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
+                paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
+                canvas.drawText(title, 30, y, paint);
+                y += 22;
+            }
+
             paint.setTextSize(10f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
-            y += 16;
             if (!senderEmail.isEmpty()) {
                 canvas.drawText(senderEmail, 30, y, paint);
                 y += 14;
@@ -1636,8 +1659,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ==================== STOCKS & CATÉGORIES ====================
-
     private void showStockPopupMenu(View anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
         for (int i = 0; i < stocksList.size(); i++) {
@@ -1733,8 +1754,6 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    // ==================== OPTIONS & SAUVEGARDE / RESTAURATION ====================
-
     private void showOptionsDialog() {
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
@@ -1793,9 +1812,44 @@ public class MainActivity extends AppCompatActivity {
 
         EditText shopInput = new EditText(this);
         shopInput.setText(shopName);
-        shopInput.setHint("Ex: OptiStock");
+        shopInput.setHint("Ex: Mon Entreprise");
         shopInput.setSingleLine(true);
         box.addView(shopInput);
+
+        // CONFIGURATION DU LOGO D'ENTREPRISE DANS LES OPTIONS
+        TextView logoSecTv = new TextView(this);
+        logoSecTv.setText(tr("opt_custom_logo"));
+        logoSecTv.setTypeface(null, Typeface.BOLD);
+        logoSecTv.setPadding(0, dp(12), 0, dp(4));
+        box.addView(logoSecTv);
+
+        LinearLayout logoPickRow = new LinearLayout(this);
+        logoPickRow.setOrientation(LinearLayout.HORIZONTAL);
+        logoPickRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        tempCustomLogoPath = customLogoPath;
+        optionsLogoPreview = new ImageView(this);
+        optionsLogoPreview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        optionsLogoPreview.setBackground(createRoundedBg(Color.parseColor("#CBD5E1"), dp(8)));
+        if (!tempCustomLogoPath.isEmpty()) {
+            Bitmap b = loadBitmapFromInternalStorage(tempCustomLogoPath);
+            if (b != null) optionsLogoPreview.setImageBitmap(b);
+        } else {
+            loadLogoInto(optionsLogoPreview);
+        }
+        LinearLayout.LayoutParams oImgLp = new LinearLayout.LayoutParams(dp(50), dp(50));
+        oImgLp.setMargins(0, 0, dp(12), 0);
+        logoPickRow.addView(optionsLogoPreview, oImgLp);
+
+        Button btnPickLogo = new Button(this);
+        btnPickLogo.setText(tr("pick_logo_btn"));
+        btnPickLogo.setAllCaps(false);
+        btnPickLogo.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+            startActivityForResult(intent, REQ_PICK_CUSTOM_LOGO);
+        });
+        logoPickRow.addView(btnPickLogo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)));
+        box.addView(logoPickRow);
 
         TextView senderTv = new TextView(this);
         senderTv.setText(tr("opt_sender_email"));
@@ -1854,6 +1908,7 @@ public class MainActivity extends AppCompatActivity {
                     } catch (Exception ignored) {}
                     shopName = shopInput.getText().toString().trim();
                     if (shopName.isEmpty()) shopName = "OptiStock";
+                    customLogoPath = tempCustomLogoPath;
                     senderEmail = senderInput.getText().toString().trim();
                     senderAppPass = passInput.getText().toString().trim();
                     prefs.edit()
@@ -1863,6 +1918,7 @@ public class MainActivity extends AppCompatActivity {
                             .putBoolean("usePrices", usePrices)
                             .putInt("lowStockThreshold", lowStockThreshold)
                             .putString("shopName", shopName)
+                            .putString("customLogoPath", customLogoPath)
                             .putString("senderEmail", senderEmail)
                             .putString("senderAppPass", senderAppPass)
                             .apply();
@@ -1884,7 +1940,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             saveData();
             JSONObject backup = new JSONObject();
-            backup.put("version", 2);
+            backup.put("version", 3);
             backup.put("exportedAt", System.currentTimeMillis());
             backup.put("inventory_json", prefs.getString("inventory_json", "[]"));
             backup.put("stocks_json", prefs.getString("stocks_json", "[]"));
@@ -1893,6 +1949,7 @@ public class MainActivity extends AppCompatActivity {
             backup.put("history_json", prefs.getString("history_json", "[]"));
             backup.put("currentStock", currentStock);
             backup.put("shopName", shopName);
+            backup.put("customLogoPath", customLogoPath);
             backup.put("senderEmail", senderEmail);
             backup.put("lowStockThreshold", lowStockThreshold);
 
@@ -1902,6 +1959,10 @@ public class MainActivity extends AppCompatActivity {
                     String b64 = fileToBase64(p.imagePath);
                     if (!b64.isEmpty()) photosMap.put(p.imagePath, b64);
                 }
+            }
+            if (customLogoPath != null && !customLogoPath.isEmpty()) {
+                String b64 = fileToBase64(customLogoPath);
+                if (!b64.isEmpty()) photosMap.put(customLogoPath, b64);
             }
             backup.put("photos_map", photosMap);
 
@@ -1955,6 +2016,10 @@ public class MainActivity extends AppCompatActivity {
                 shopName = backup.getString("shopName");
                 ed.putString("shopName", shopName);
             }
+            if (backup.has("customLogoPath")) {
+                customLogoPath = backup.getString("customLogoPath");
+                ed.putString("customLogoPath", customLogoPath);
+            }
             if (backup.has("senderEmail")) {
                 senderEmail = backup.getString("senderEmail");
                 ed.putString("senderEmail", senderEmail);
@@ -1973,8 +2038,6 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Erreur restauration : " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
-
-    // ==================== SCAN & TRANSACTIONS PRODUITS ====================
 
     private void startBarcodeScan(boolean isEntry) {
         GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
@@ -2522,11 +2585,30 @@ public class MainActivity extends AppCompatActivity {
             PdfDocument.Page page = pdf.startPage(pageInfo);
             Canvas canvas = page.getCanvas();
 
-            paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
-            canvas.drawText("OptiStock - " + currentStock, 40, y, paint);
+            // Intégration du logo et du nom d'entreprise sur les PDF exportés
+            Bitmap logoBmp = null;
+            if (customLogoPath != null && !customLogoPath.isEmpty()) {
+                logoBmp = loadBitmapFromInternalStorage(customLogoPath);
+            }
+            if (logoBmp == null) {
+                int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
+                if (resId != 0) logoBmp = BitmapFactory.decodeResource(getResources(), resId);
+            }
+            if (logoBmp != null) {
+                canvas.drawBitmap(Bitmap.createScaledBitmap(logoBmp, 40, 40, true), 40, y - 10, null);
+                paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
+                String companyTitle = ((shopName != null && !shopName.isEmpty()) ? shopName : "OptiStock") + " - " + currentStock;
+                canvas.drawText(companyTitle, 90, y + 14, paint);
+                y += 38;
+            } else {
+                paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
+                canvas.drawText(((shopName != null && !shopName.isEmpty()) ? shopName : "OptiStock") + " - " + currentStock, 40, y, paint);
+                y += 38;
+            }
+
             paint.setTextSize(10f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
-            canvas.drawText("Date : " + new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date()) + "  |  Développé par GoDev", 40, y + 18, paint);
-            y += 38; canvas.drawLine(40, y, 555, y, linePaint); y += 18;
+            canvas.drawText("Date : " + new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date()) + "  |  Développé par GoDev", 40, y, paint);
+            y += 18; canvas.drawLine(40, y, 555, y, linePaint); y += 18;
 
             paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
             canvas.drawText("Photo", 40, y, paint);
@@ -2592,6 +2674,16 @@ public class MainActivity extends AppCompatActivity {
             restoreBackupFromUri(data.getData());
         } else if (requestCode == REQ_EXPORT_HISTORY_CSV && data.getData() != null) {
             generateHistoryCsvToUri(data.getData());
+        } else if (requestCode == REQ_PICK_CUSTOM_LOGO && data.getData() != null) {
+            try {
+                InputStream is = getContentResolver().openInputStream(data.getData());
+                Bitmap bmp = BitmapFactory.decodeStream(is);
+                if (is != null) is.close();
+                if (bmp != null) {
+                    tempCustomLogoPath = saveBitmapToInternalStorage(bmp);
+                    if (optionsLogoPreview != null) optionsLogoPreview.setImageBitmap(bmp);
+                }
+            } catch (Exception ignored) {}
         } else if (requestCode == REQ_TAKE_PHOTO && data.getExtras() != null) {
             Bitmap photo = (Bitmap) data.getExtras().get("data");
             if (photo != null) {
@@ -2600,8 +2692,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
-    // ==================== PERSISTANCE & STOCKAGE FICHIERS INTERNES ====================
 
     private void saveData() {
         try {
