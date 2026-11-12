@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -51,6 +52,16 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.android.billingclient.api.AcknowledgePurchaseParams;
+import com.android.billingclient.api.BillingClient;
+import com.android.billingclient.api.BillingClientStateListener;
+import com.android.billingclient.api.BillingFlowParams;
+import com.android.billingclient.api.BillingResult;
+import com.android.billingclient.api.ProductDetails;
+import com.android.billingclient.api.Purchase;
+import com.android.billingclient.api.PurchasesUpdatedListener;
+import com.android.billingclient.api.QueryProductDetailsParams;
+import com.android.billingclient.api.QueryPurchasesParams;
 import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
@@ -60,16 +71,22 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -83,7 +100,7 @@ import javax.net.ssl.SSLSocketFactory;
 public class MainActivity extends AppCompatActivity {
 
     static class Product {
-        String barcode, name, imageBase64, stockName, category;
+        String barcode, name, imagePath, stockName, category;
         int quantity;
         double price;
     }
@@ -94,15 +111,29 @@ public class MainActivity extends AppCompatActivity {
         double unitPrice;
     }
 
+    static class Movement {
+        long timestamp;
+        String type;
+        String barcode;
+        String productName;
+        int quantity;
+        String stockName;
+        double unitPrice;
+    }
+
     private final List<Product> inventory = new ArrayList<>();
     private final List<Product> filteredInventory = new ArrayList<>();
     private final List<String> stocksList = new ArrayList<>();
     private final List<String> categoriesList = new ArrayList<>();
     private final List<ReceiptItem> currentReceipt = new ArrayList<>();
     private final List<String> clientEmails = new ArrayList<>();
+    private final List<Movement> movementsHistory = new ArrayList<>();
+    private final Map<String, Bitmap> bitmapCache = new HashMap<>();
 
     private String currentStock = "";
     private String selectedCategoryFilter = "ALL";
+    private boolean onlyLowStockFilter = false;
+    private int lowStockThreshold = 3;
     private InventoryAdapter adapter;
     private SharedPreferences prefs;
 
@@ -117,19 +148,34 @@ public class MainActivity extends AppCompatActivity {
     private double lastExitTotal = 0.0;
     private double sessionExitTotal = 0.0;
 
+    // Monétisation : Essai gratuit 7 jours + Achat unique 4,99 € (Offre de lancement)
+    private static final String SKU_PRO_LIFETIME = "optistock_lifetime_pro";
+    private static final long TRIAL_DURATION_MS = 7L * 24L * 60L * 60L * 1000L;
+    private BillingClient billingClient;
+    private ProductDetails proProductDetails;
+    private String formattedLaunchPrice = "4,99 €";
+    private int devTapCount = 0;
+
     private static final int REQ_CREATE_PDF = 1001;
     private static final int REQ_TAKE_PHOTO = 1002;
+    private static final int REQ_EXPORT_BACKUP = 1003;
+    private static final int REQ_IMPORT_BACKUP = 1004;
+    private static final int REQ_CREATE_RECEIPT_PDF = 1005;
+    private static final int REQ_EXPORT_HISTORY_CSV = 1006;
+
     private ImageView currentPhotoPreview;
-    private String tempPhotoBase64 = "";
+    private String tempPhotoPath = "";
+    private double pendingReceiptDiscountVal = 0.0;
+    private boolean pendingReceiptDiscountPct = true;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private LinearLayout rootLayout, headerLayout, subHeaderLayout, statsRefsCard, statsUnitsCard, emptyContainer, exitTotalBanner, bottomBarLayout;
-    private TextView titleText, statsRefsValue, statsRefsLabel, statsUnitsValue, statsUnitsLabel, emptyText, exitTotalText;
+    private LinearLayout rootLayout, headerLayout, subHeaderLayout, statsRefsCard, statsUnitsCard, statsLowCard, emptyContainer, exitTotalBanner, bottomBarLayout;
+    private TextView titleText, trialBannerText, statsRefsValue, statsRefsLabel, statsUnitsValue, statsUnitsLabel, statsLowValue, statsLowLabel, emptyText, exitTotalText;
     private ImageView headerLogo, emptyLogo;
     private EditText searchInput;
-    private Button btnEntry, btnExit, btnPdf, btnOptions, btnStockSelector, btnCatFilter, btnOpenReceipt;
+    private Button btnEntry, btnExit, btnHistory, btnPdf, btnOptions, btnStockSelector, btnCatFilter, btnOpenReceipt;
     private ListView listView;
 
     @Override
@@ -139,12 +185,281 @@ public class MainActivity extends AppCompatActivity {
         isDarkMode = prefs.getBoolean("darkMode", true);
         usePrices = prefs.getBoolean("usePrices", false);
         useScanner = prefs.getBoolean("useScanner", true);
+        lowStockThreshold = prefs.getInt("lowStockThreshold", 3);
         langPref = prefs.getString("langPref", "SYS");
         senderEmail = prefs.getString("senderEmail", "");
         senderAppPass = prefs.getString("senderAppPass", "");
         shopName = prefs.getString("shopName", "OptiStock");
+
+        initTrialTimestamp();
+        initBilling();
         loadData();
         showSplashScreen();
+    }
+
+    private void initTrialTimestamp() {
+        long start = prefs.getLong("trialStartMs", 0L);
+        if (start == 0L) {
+            try {
+                PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+                start = pi.firstInstallTime > 0 ? pi.firstInstallTime : System.currentTimeMillis();
+            } catch (Exception e) {
+                start = System.currentTimeMillis();
+            }
+            prefs.edit().putLong("trialStartMs", start).apply();
+        }
+    }
+
+    private boolean isProUnlocked() {
+        return prefs.getBoolean("isProUnlocked", false) || prefs.getBoolean("devBypassPro", false);
+    }
+
+    private int getRemainingTrialDays() {
+        long start = prefs.getLong("trialStartMs", System.currentTimeMillis());
+        long elapsed = System.currentTimeMillis() - start;
+        if (elapsed >= TRIAL_DURATION_MS) return 0;
+        long remaining = TRIAL_DURATION_MS - elapsed;
+        return (int) Math.ceil(remaining / (24.0 * 60.0 * 60.0 * 1000.0));
+    }
+
+    private boolean isAccessAllowed() {
+        return isProUnlocked() || getRemainingTrialDays() > 0;
+    }
+
+    private void initBilling() {
+        PurchasesUpdatedListener listener = (billingResult, purchases) -> {
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && purchases != null) {
+                for (Purchase purchase : purchases) {
+                    handlePurchase(purchase);
+                }
+            }
+        };
+
+        billingClient = BillingClient.newBuilder(this)
+                .setListener(listener)
+                .enablePendingPurchases()
+                .build();
+
+        billingClient.startConnection(new BillingClientStateListener() {
+            @Override
+            public void onBillingSetupFinished(BillingResult billingResult) {
+                if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                    queryProProductDetails();
+                    checkExistingPurchases();
+                }
+            }
+            @Override
+            public void onBillingServiceDisconnected() {}
+        });
+    }
+
+    private void queryProProductDetails() {
+        if (billingClient == null || !billingClient.isReady()) return;
+        QueryProductDetailsParams.Product product = QueryProductDetailsParams.Product.newBuilder()
+                .setProductId(SKU_PRO_LIFETIME)
+                .setProductType(BillingClient.ProductType.INAPP)
+                .build();
+        QueryProductDetailsParams params = QueryProductDetailsParams.newBuilder()
+                .setProductList(Collections.singletonList(product))
+                .build();
+        billingClient.queryProductDetailsAsync(params, (billingResult, productDetailsList) -> {
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && productDetailsList != null && !productDetailsList.isEmpty()) {
+                proProductDetails = productDetailsList.get(0);
+                if (proProductDetails.getOneTimePurchaseOfferDetails() != null) {
+                    formattedLaunchPrice = proProductDetails.getOneTimePurchaseOfferDetails().getFormattedPrice();
+                }
+            }
+        });
+    }
+
+    private void checkExistingPurchases() {
+        if (billingClient == null || !billingClient.isReady()) return;
+        QueryPurchasesParams params = QueryPurchasesParams.newBuilder()
+                .setProductType(BillingClient.ProductType.INAPP)
+                .build();
+        billingClient.queryPurchasesAsync(params, (billingResult, purchases) -> {
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && purchases != null) {
+                for (Purchase p : purchases) {
+                    handlePurchase(p);
+                }
+            }
+        });
+    }
+
+    private void handlePurchase(Purchase purchase) {
+        if (purchase.getProducts().contains(SKU_PRO_LIFETIME) && purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
+            if (!purchase.isAcknowledged()) {
+                AcknowledgePurchaseParams ackParams = AcknowledgePurchaseParams.newBuilder()
+                        .setPurchaseToken(purchase.getPurchaseToken())
+                        .build();
+                billingClient.acknowledgePurchase(ackParams, result -> {});
+            }
+            prefs.edit().putBoolean("isProUnlocked", true).apply();
+            mainHandler.post(() -> {
+                Toast.makeText(MainActivity.this, tr("pro_unlocked_toast"), Toast.LENGTH_LONG).show();
+                buildMainUI();
+                applyThemeAndLang();
+            });
+        }
+    }
+
+    private void launchProPurchaseFlow() {
+        if (billingClient != null && billingClient.isReady() && proProductDetails != null) {
+            BillingFlowParams.ProductDetailsParams pdParams = BillingFlowParams.ProductDetailsParams.newBuilder()
+                    .setProductDetails(proProductDetails)
+                    .build();
+            BillingFlowParams flowParams = BillingFlowParams.newBuilder()
+                    .setProductDetailsParamsList(Collections.singletonList(pdParams))
+                    .build();
+            billingClient.launchBillingFlow(this, flowParams);
+        } else {
+            Toast.makeText(this, tr("billing_pending_msg"), Toast.LENGTH_LONG).show();
+            if (billingClient != null && billingClient.isReady()) {
+                queryProProductDetails();
+                checkExistingPurchases();
+            }
+        }
+    }
+
+    private void showPaywallUI() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(Color.parseColor("#040B1C"));
+        scroll.setFillViewport(true);
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setGravity(Gravity.CENTER_HORIZONTAL);
+        container.setPadding(dp(24), dp(36), dp(24), dp(24));
+        scroll.addView(container);
+
+        ImageView logo = new ImageView(this);
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        loadLogoInto(logo);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(140), dp(140));
+        logoLp.setMargins(0, 0, 0, dp(16));
+        container.addView(logo, logoLp);
+
+        TextView title = new TextView(this);
+        title.setText(tr("trial_expired_title"));
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        container.addView(title);
+
+        TextView sub = new TextView(this);
+        sub.setText(tr("trial_expired_sub"));
+        sub.setTextColor(Color.parseColor("#94A3B8"));
+        sub.setTextSize(14);
+        sub.setGravity(Gravity.CENTER);
+        sub.setPadding(0, dp(8), 0, dp(20));
+        container.addView(sub);
+
+        LinearLayout offerCard = new LinearLayout(this);
+        offerCard.setOrientation(LinearLayout.VERTICAL);
+        offerCard.setGravity(Gravity.CENTER);
+        offerCard.setPadding(dp(20), dp(20), dp(20), dp(20));
+        offerCard.setBackground(createRoundedBg(Color.parseColor("#0F172A"), dp(16), dp(2), Color.parseColor("#38BDF8")));
+
+        TextView badge = new TextView(this);
+        badge.setText(tr("launch_offer_badge"));
+        badge.setTextColor(Color.parseColor("#040B1C"));
+        badge.setTextSize(12);
+        badge.setTypeface(null, Typeface.BOLD);
+        badge.setPadding(dp(12), dp(4), dp(12), dp(4));
+        badge.setBackground(createRoundedBg(Color.parseColor("#38BDF8"), dp(8)));
+        offerCard.addView(badge);
+
+        TextView priceTv = new TextView(this);
+        priceTv.setText(formattedLaunchPrice);
+        priceTv.setTextColor(Color.WHITE);
+        priceTv.setTextSize(36);
+        priceTv.setTypeface(null, Typeface.BOLD);
+        priceTv.setPadding(0, dp(12), 0, dp(4));
+        offerCard.addView(priceTv);
+
+        TextView oneTimeTv = new TextView(this);
+        oneTimeTv.setText(tr("one_time_label"));
+        oneTimeTv.setTextColor(Color.parseColor("#34D399"));
+        oneTimeTv.setTextSize(13);
+        oneTimeTv.setTypeface(null, Typeface.BOLD);
+        oneTimeTv.setPadding(0, 0, 0, dp(14));
+        offerCard.addView(oneTimeTv);
+
+        TextView perksTv = new TextView(this);
+        perksTv.setText(tr("pro_perks_list"));
+        perksTv.setTextColor(Color.parseColor("#E2E8F0"));
+        perksTv.setTextSize(13);
+        perksTv.setLineSpacing(dp(4), 1f);
+        offerCard.addView(perksTv);
+
+        container.addView(offerCard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        Button btnUnlock = new Button(this);
+        btnUnlock.setText(String.format(Locale.getDefault(), tr("unlock_btn_fmt"), formattedLaunchPrice));
+        btnUnlock.setTextSize(16);
+        btnUnlock.setTypeface(null, Typeface.BOLD);
+        btnUnlock.setTextColor(Color.WHITE);
+        btnUnlock.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(14), dp(2), Color.parseColor("#34D399")));
+        btnUnlock.setOnClickListener(v -> launchProPurchaseFlow());
+        LinearLayout.LayoutParams unlockLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
+        unlockLp.setMargins(0, dp(22), 0, dp(10));
+        container.addView(btnUnlock, unlockLp);
+
+        Button btnRestore = new Button(this);
+        btnRestore.setText(tr("restore_btn"));
+        btnRestore.setAllCaps(false);
+        btnRestore.setTextSize(13);
+        btnRestore.setTextColor(Color.parseColor("#94A3B8"));
+        btnRestore.setBackground(createRoundedBg(Color.parseColor("#0F172A"), dp(12), dp(1), Color.parseColor("#1E3A8A")));
+        btnRestore.setOnClickListener(v -> {
+            checkExistingPurchases();
+            Toast.makeText(this, tr("checking_purchases"), Toast.LENGTH_SHORT).show();
+        });
+        container.addView(btnRestore, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
+        container.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
+
+        TextView footerTv = new TextView(this);
+        footerTv.setText("Développé par GoDev");
+        footerTv.setTextColor(Color.parseColor("#38BDF8"));
+        footerTv.setTextSize(13);
+        footerTv.setTypeface(null, Typeface.BOLD);
+        footerTv.setPadding(dp(12), dp(16), dp(12), dp(8));
+        footerTv.setOnClickListener(v -> {
+            devTapCount++;
+            if (devTapCount >= 5) {
+                devTapCount = 0;
+                boolean cur = prefs.getBoolean("devBypassPro", false);
+                prefs.edit().putBoolean("devBypassPro", !cur).apply();
+                Toast.makeText(this, !cur ? "🔧 Mode Test Développeur ACTIVÉ" : "🔧 Mode Test Développeur DÉSACTIVÉ", Toast.LENGTH_SHORT).show();
+                if (!cur) {
+                    buildMainUI();
+                    applyThemeAndLang();
+                }
+            }
+        });
+        container.addView(footerTv);
+
+        setContentView(scroll);
+    }
+
+    private void showLaunchOfferDialog() {
+        int daysLeft = getRemainingTrialDays();
+        String msg = isProUnlocked()
+                ? tr("pro_active_desc")
+                : String.format(Locale.getDefault(), tr("trial_popup_desc"), daysLeft, formattedLaunchPrice);
+
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle("🚀 OptiStock Pro")
+                .setMessage(msg)
+                .setNegativeButton(tr("cancel"), null);
+
+        if (!isProUnlocked()) {
+            b.setPositiveButton(String.format(Locale.getDefault(), tr("unlock_btn_fmt"), formattedLaunchPrice), (d, w) -> launchProPurchaseFlow());
+            b.setNeutralButton(tr("restore_btn"), (d, w) -> checkExistingPurchases());
+        }
+        b.show();
     }
 
     private void loadLogoInto(ImageView imgView) {
@@ -196,8 +511,12 @@ public class MainActivity extends AppCompatActivity {
         anim.start();
 
         mainHandler.postDelayed(() -> {
-            buildMainUI();
-            applyThemeAndLang();
+            if (isAccessAllowed()) {
+                buildMainUI();
+                applyThemeAndLang();
+            } else {
+                showPaywallUI();
+            }
         }, 3650);
     }
 
@@ -265,10 +584,11 @@ public class MainActivity extends AppCompatActivity {
         dict.put("app_title", new String[]{"OptiStock", "OptiStock", "OptiStock"});
         dict.put("refs", new String[]{"RÉFÉRENCES", "ITEMS", "REFERENCIAS"});
         dict.put("units", new String[]{"TOTAL UNITÉS", "TOTAL UNITS", "UNIDADES TOTALES"});
+        dict.put("low_stock", new String[]{"⚠️ STOCK BAS", "⚠️ LOW STOCK", "⚠️ STOCK BAJO"});
         dict.put("btn_in", new String[]{"+ ENTRÉE", "+ STOCK IN", "+ ENTRADA"});
         dict.put("btn_out", new String[]{"- SORTIE", "- STOCK OUT", "- SALIDA"});
         dict.put("search", new String[]{"🔍 Rechercher un produit ou code...", "🔍 Search product or barcode...", "🔍 Buscar producto o código..."});
-        dict.put("empty", new String[]{"Aucun produit dans ce stock.\nAppuyez sur + ENTRÉE en bas pour commencer.", "No products in this stock.\nTap + STOCK IN below to start.", "Sin productos en este stock.\nToque + ENTRADA abajo para empezar."});
+        dict.put("empty", new String[]{"Aucun produit affiché.\nAppuyez sur + ENTRÉE en bas pour ajouter un article.", "No products shown.\nTap + STOCK IN below to add an item.", "Sin productos mostrados.\nToque + ENTRADA abajo para añadir."});
         dict.put("fetching", new String[]{"Recherche du produit sur Internet...", "Searching product online...", "Buscando producto en línea..."});
         dict.put("entry_title", new String[]{"Entrée de stock", "Stock Entry", "Entrada de stock"});
         dict.put("exit_title", new String[]{"Sortie de stock", "Stock Exit", "Salida de stock"});
@@ -285,6 +605,7 @@ public class MainActivity extends AppCompatActivity {
         dict.put("delete", new String[]{"🗑️ Supprimer", "🗑️ Delete", "🗑️ Eliminar"});
         dict.put("manual_code", new String[]{"Saisie manuelle du code", "Manual Barcode", "Código manual"});
         dict.put("photo_btn", new String[]{"📷 Photo", "📷 Photo", "📷 Foto"});
+        dict.put("hist_btn", new String[]{"📜 Hist.", "📜 Hist.", "📜 Hist."});
         dict.put("pdf_btn", new String[]{"📄 PDF", "📄 PDF", "📄 PDF"});
         dict.put("pdf_ok", new String[]{"PDF enregistré avec succès !", "PDF saved successfully!", "¡PDF guardado con éxito!"});
         dict.put("unknown_prod", new String[]{"Nouveau produit", "New Product", "Nuevo producto"});
@@ -303,13 +624,16 @@ public class MainActivity extends AppCompatActivity {
         dict.put("opt_dark", new String[]{"Mode Sombre (Cyber-Logistique)", "Dark Mode (Cyber-Logistics)", "Modo Oscuro (Ciber-Logística)"});
         dict.put("opt_scanner", new String[]{"📷 Activer le scanner de code-barres", "📷 Enable barcode scanner", "📷 Activar escáner de código de barras"});
         dict.put("opt_prices", new String[]{"💶 Activer la gestion des prix & Ticket", "💶 Enable prices & Receipt", "💶 Activar precios y Ticket"});
+        dict.put("opt_low_thresh", new String[]{"Seuil d'alerte stock bas (unités) :", "Low stock alert threshold (units):", "Umbral de alerta stock bajo (unidades):"});
         dict.put("exit_total_live", new String[]{"Prix total de cette sortie : ", "Total price for this exit: ", "Precio total de esta salida: "});
         dict.put("exit_banner", new String[]{"🧾 Ticket (%1$d art.) : %2$.2f €", "🧾 Receipt (%1$d it.) : %2$.2f", "🧾 Ticket (%1$d art.) : %2$.2f €"});
-        dict.put("btn_receipt_view", new String[]{"📧 Ticket / Mail", "📧 Receipt / Mail", "📧 Ticket / Mail"});
+        dict.put("btn_receipt_view", new String[]{"📧 Ticket / PDF", "📧 Receipt / PDF", "📧 Ticket / PDF"});
         dict.put("receipt_title", new String[]{"🧾 Ticket de Caisse", "🧾 Sales Receipt", "🧾 Ticket de Caja"});
+        dict.put("discount_label", new String[]{"Remise :", "Discount:", "Descuento:"});
+        dict.put("receipt_pdf_btn", new String[]{"📄 Ticket PDF", "📄 Receipt PDF", "📄 Ticket PDF"});
         dict.put("client_search_hint", new String[]{"🔍 Chercher ou saisir l'e-mail du client...", "🔍 Search or type customer email...", "🔍 Buscar o escribir email del cliente..."});
-        dict.put("send_email_btn", new String[]{"📧 Envoyer le ticket au client", "📧 Send receipt to customer", "📧 Enviar ticket al cliente"});
-        dict.put("clear_receipt_btn", new String[]{"🗑️ Nouveau ticket (Vider)", "🗑️ New receipt (Clear)", "🗑️ Nuevo ticket (Vaciar)"});
+        dict.put("send_email_btn", new String[]{"📧 Envoyer par mail", "📧 Send by email", "📧 Enviar por correo"});
+        dict.put("clear_receipt_btn", new String[]{"🗑️ Vider", "🗑️ Clear", "🗑️ Vaciar"});
         dict.put("opt_shop_name", new String[]{"Nom de la boutique / Entreprise :", "Shop / Company Name:", "Nombre de la tienda / Empresa:"});
         dict.put("opt_sender_email", new String[]{"Mon adresse e-mail liée (Expéditeur) :", "My linked email address (Sender):", "Mi correo vinculado (Remitente):"});
         dict.put("opt_sender_pass", new String[]{"Clé / Mot de passe d'appli SMTP (Optionnel, pour envoi direct) :", "SMTP App Password (Optional, for silent sending):", "Contraseña de app SMTP (Opcional):"});
@@ -317,6 +641,29 @@ public class MainActivity extends AppCompatActivity {
         dict.put("email_invalid", new String[]{"Veuillez saisir une adresse e-mail client valide.", "Please enter a valid customer email.", "Ingrese un correo electrónico válido."});
         dict.put("saved_clients_label", new String[]{"👥 Registre clients (touchez pour sélectionner) :", "👥 Customer registry (tap to select):", "👥 Registro de clientes (toque para elegir):"});
         dict.put("tap_product_for_exit", new String[]{"👆 Cliquez sur un produit de la liste pour choisir la quantité et valider la sortie.", "👆 Tap a product in the list to choose quantity and confirm stock out.", "👆 Toque un producto en la lista para elegir la cantidad y validar la salida."});
+        dict.put("backup_section", new String[]{"💾 Sauvegarde & Restauration des données :", "💾 Data Backup & Restore:", "💾 Copia de seguridad y Restauración:"});
+        dict.put("backup_export_btn", new String[]{"📤 Exporter sauvegarde (.json)", "📤 Export backup (.json)", "📤 Exportar copia (.json)"});
+        dict.put("backup_import_btn", new String[]{"📥 Restaurer sauvegarde (.json)", "📥 Restore backup (.json)", "📥 Restaurar copia (.json)"});
+        dict.put("backup_ok", new String[]{"✅ Sauvegarde exportée avec succès !", "✅ Backup exported successfully!", "✅ ¡Copia exportada con éxito!"});
+        dict.put("restore_ok", new String[]{"✅ Données restaurées avec succès !", "✅ Data restored successfully!", "✅ ¡Datos restaurados con éxito!"});
+        dict.put("history_title", new String[]{"📜 Historique des mouvements", "📜 Movement History", "📜 Historial de movimientos"});
+        dict.put("history_empty", new String[]{"Aucun mouvement enregistré pour le moment.", "No movements recorded yet.", "Sin movimientos registrados aún."});
+        dict.put("history_csv_btn", new String[]{"📊 Exporter CSV", "📊 Export CSV", "📊 Exportar CSV"});
+        dict.put("history_clear_btn", new String[]{"🗑️ Effacer", "🗑️ Clear", "🗑️ Borrar"});
+        dict.put("csv_ok", new String[]{"✅ Historique CSV exporté !", "✅ History CSV exported!", "✅ ¡Historial CSV exportado!"});
+        dict.put("trial_banner_fmt", new String[]{"🎁 Essai gratuit : %1$d j restant(s) • Offre lancement %2$s", "🎁 Free trial: %1$d d left • Launch offer %2$s", "🎁 Prueba gratis: %1$d d • Oferta %2$s"});
+        dict.put("trial_expired_title", new String[]{"Essai gratuit de 7 jours terminé", "7-Day Free Trial Ended", "Prueba gratuita de 7 días finalizada"});
+        dict.put("trial_expired_sub", new String[]{"Débloquez OptiStock définitivement pour continuer à gérer vos stocks et vos tickets sans limite.", "Unlock OptiStock permanently to keep managing your inventory and receipts without limits.", "Desbloquea OptiStock para siempre para seguir gestionando tus stocks y tickets."});
+        dict.put("launch_offer_badge", new String[]{"🚀 OFFRE DE LANCEMENT • LICENCE À VIE", "🚀 LAUNCH OFFER • LIFETIME LICENSE", "🚀 OFERTA DE LANZAMIENTO • DE POR VIDA"});
+        dict.put("one_time_label", new String[]{"Achat unique • Aucun abonnement", "One-time purchase • No subscription", "Compra única • Sin suscripción"});
+        dict.put("pro_perks_list", new String[]{"✓ Multi-stocks & catégories illimités\n✓ Scan code-barres + saisie rapide sans scan\n✓ Ticket de caisse PDF, remises & envoi e-mail\n✓ Historique CSV & sauvegarde complète JSON\n✓ Mises à jour futures incluses", "✓ Unlimited multi-stocks & categories\n✓ Barcode scanner + fast manual mode\n✓ PDF receipts, discounts & client emails\n✓ CSV history & full JSON backup\n✓ All future updates included", "✓ Multi-stocks y categorías ilimitados\n✓ Escáner y modo manual rápido\n✓ Tickets PDF, descuentos y envío email\n✓ Historial CSV y copia de seguridad JSON"});
+        dict.put("unlock_btn_fmt", new String[]{"🔓 Débloquer à vie (%1$s)", "🔓 Unlock Lifetime (%1$s)", "🔓 Desbloquear de por vida (%1$s)"});
+        dict.put("restore_btn", new String[]{"🔄 Restaurer un achat", "🔄 Restore Purchase", "🔄 Restaurar compra"});
+        dict.put("checking_purchases", new String[]{"Vérification des achats Google Play...", "Checking Google Play purchases...", "Verificando compras de Google Play..."});
+        dict.put("pro_unlocked_toast", new String[]{"⭐ Merci ! OptiStock Pro est débloqué à vie.", "⭐ Thank you! OptiStock Pro is unlocked for life.", "⭐ ¡Gracias! OptiStock Pro desbloqueado de por vida."});
+        dict.put("billing_pending_msg", new String[]{"Connexion à Google Play en cours. Assurez-vous que l'application est installée via Google Play.", "Connecting to Google Play. Make sure the app is installed via Google Play.", "Conectando a Google Play..."});
+        dict.put("trial_popup_desc", new String[]{"Il vous reste %1$d jour(s) d'essai gratuit.\n\nProfitez dès maintenant de l'offre de lancement à %2$s (achat unique à vie, avant augmentation du tarif).", "You have %1$d day(s) left in your free trial.\n\nGrab the launch offer now at %2$s (one-time lifetime purchase before price increase).", "Te quedan %1$d día(s) de prueba gratuita.\n\nAprovecha la oferta de lanzamiento a %2$s."});
+        dict.put("pro_active_desc", new String[]{"⭐ Licence à vie OptiStock Pro active.\nMerci pour votre soutien !", "⭐ OptiStock Pro Lifetime License active.\nThank you for your support!", "⭐ Licencia de por vida OptiStock Pro activa."});
 
         String eff = langPref.equals("SYS") ? Locale.getDefault().getLanguage().toLowerCase() : langPref;
         int idx = eff.startsWith("en") ? 1 : (eff.startsWith("es") ? 2 : 0);
@@ -326,8 +673,22 @@ public class MainActivity extends AppCompatActivity {
     private void buildMainUI() {
         rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
-        rootLayout.setPadding(dp(14), dp(12), dp(14), dp(12));
+        rootLayout.setPadding(dp(12), dp(10), dp(12), dp(10));
 
+        // 0. BANDEAU D'ESSAI GRATUIT
+        trialBannerText = new TextView(this);
+        trialBannerText.setTextSize(11);
+        trialBannerText.setTypeface(null, Typeface.BOLD);
+        trialBannerText.setTextColor(Color.parseColor("#38BDF8"));
+        trialBannerText.setGravity(Gravity.CENTER);
+        trialBannerText.setPadding(dp(10), dp(5), dp(10), dp(5));
+        trialBannerText.setBackground(createRoundedBg(Color.parseColor("#0F172A"), dp(8), dp(1), Color.parseColor("#0284C7")));
+        trialBannerText.setOnClickListener(v -> showLaunchOfferDialog());
+        LinearLayout.LayoutParams trialLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        trialLp.setMargins(0, 0, 0, dp(8));
+        rootLayout.addView(trialBannerText, trialLp);
+
+        // 1. EN-TÊTE AVEC LOGO EN HAUT À GAUCHE + HISTORIQUE + PDF + OPTIONS
         headerLayout = new LinearLayout(this);
         headerLayout.setOrientation(LinearLayout.HORIZONTAL);
         headerLayout.setGravity(Gravity.CENTER_VERTICAL);
@@ -335,105 +696,139 @@ public class MainActivity extends AppCompatActivity {
         headerLogo = new ImageView(this);
         headerLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         loadLogoInto(headerLogo);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-        logoLp.setMargins(0, 0, dp(10), 0);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        logoLp.setMargins(0, 0, dp(8), 0);
         headerLayout.addView(headerLogo, logoLp);
 
         titleText = new TextView(this);
-        titleText.setTextSize(23);
+        titleText.setTextSize(20);
         titleText.setTypeface(null, Typeface.BOLD);
+        titleText.setOnClickListener(v -> showLaunchOfferDialog());
         headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
+        btnHistory = new Button(this);
+        btnHistory.setTextSize(11);
+        btnHistory.setAllCaps(false);
+        btnHistory.setTypeface(null, Typeface.BOLD);
+        btnHistory.setPadding(dp(8), dp(4), dp(8), dp(4));
+        LinearLayout.LayoutParams histLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
+        histLp.setMargins(0, 0, dp(5), 0);
+        btnHistory.setOnClickListener(v -> showHistoryDialog());
+        headerLayout.addView(btnHistory, histLp);
+
         btnPdf = new Button(this);
-        btnPdf.setTextSize(12);
+        btnPdf.setTextSize(11);
         btnPdf.setAllCaps(false);
         btnPdf.setTypeface(null, Typeface.BOLD);
-        btnPdf.setPadding(dp(12), dp(4), dp(12), dp(4));
-        LinearLayout.LayoutParams pdfLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
-        pdfLp.setMargins(0, 0, dp(8), 0);
+        btnPdf.setPadding(dp(8), dp(4), dp(8), dp(4));
+        LinearLayout.LayoutParams pdfLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
+        pdfLp.setMargins(0, 0, dp(5), 0);
         btnPdf.setOnClickListener(v -> startPdfExport());
         headerLayout.addView(btnPdf, pdfLp);
 
         btnOptions = new Button(this);
-        btnOptions.setTextSize(12);
+        btnOptions.setTextSize(11);
         btnOptions.setAllCaps(false);
         btnOptions.setTypeface(null, Typeface.BOLD);
-        btnOptions.setPadding(dp(12), dp(4), dp(12), dp(4));
+        btnOptions.setPadding(dp(8), dp(4), dp(8), dp(4));
         btnOptions.setOnClickListener(v -> showOptionsDialog());
-        headerLayout.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)));
+        headerLayout.addView(btnOptions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
 
         rootLayout.addView(headerLayout);
 
+        // 2. SÉLECTEURS DE STOCK ET DE CATÉGORIE
         subHeaderLayout = new LinearLayout(this);
         subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        subLp.setMargins(0, dp(12), 0, dp(10));
+        subLp.setMargins(0, dp(10), 0, dp(8));
 
         btnStockSelector = new Button(this);
         btnStockSelector.setAllCaps(false);
         btnStockSelector.setTextSize(13);
         btnStockSelector.setTypeface(null, Typeface.BOLD);
-        btnStockSelector.setPadding(dp(12), dp(6), dp(12), dp(6));
+        btnStockSelector.setPadding(dp(10), dp(4), dp(10), dp(4));
         btnStockSelector.setOnClickListener(v -> showStockPopupMenu(v));
-        LinearLayout.LayoutParams stBtnLp = new LinearLayout.LayoutParams(0, dp(42), 1.08f);
-        stBtnLp.setMargins(0, 0, dp(6), 0);
+        LinearLayout.LayoutParams stBtnLp = new LinearLayout.LayoutParams(0, dp(40), 1.05f);
+        stBtnLp.setMargins(0, 0, dp(5), 0);
         subHeaderLayout.addView(btnStockSelector, stBtnLp);
 
         btnCatFilter = new Button(this);
         btnCatFilter.setAllCaps(false);
         btnCatFilter.setTextSize(12);
         btnCatFilter.setTypeface(null, Typeface.BOLD);
-        btnCatFilter.setPadding(dp(12), dp(6), dp(12), dp(6));
+        btnCatFilter.setPadding(dp(10), dp(4), dp(10), dp(4));
         btnCatFilter.setOnClickListener(v -> showCategoryFilterPopup(v));
-        LinearLayout.LayoutParams catBtnLp = new LinearLayout.LayoutParams(0, dp(42), 0.92f);
-        catBtnLp.setMargins(dp(6), 0, 0, 0);
+        LinearLayout.LayoutParams catBtnLp = new LinearLayout.LayoutParams(0, dp(40), 0.95f);
+        catBtnLp.setMargins(dp(5), 0, 0, 0);
         subHeaderLayout.addView(btnCatFilter, catBtnLp);
 
         rootLayout.addView(subHeaderLayout, subLp);
 
+        // 3. COMPTEURS KPI (3 CARTES : RÉFÉRENCES | TOTAL UNITÉS | STOCK BAS CLIQUABLE)
         LinearLayout statsRow = new LinearLayout(this);
         statsRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams statsRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        statsRowLp.setMargins(0, 0, 0, dp(10));
+        statsRowLp.setMargins(0, 0, 0, dp(8));
 
         statsRefsCard = new LinearLayout(this);
         statsRefsCard.setOrientation(LinearLayout.VERTICAL);
         statsRefsCard.setGravity(Gravity.CENTER);
-        statsRefsCard.setPadding(dp(12), dp(10), dp(12), dp(10));
+        statsRefsCard.setPadding(dp(8), dp(8), dp(8), dp(8));
         statsRefsValue = new TextView(this);
-        statsRefsValue.setTextSize(22);
+        statsRefsValue.setTextSize(20);
         statsRefsValue.setTypeface(null, Typeface.BOLD);
         statsRefsLabel = new TextView(this);
-        statsRefsLabel.setTextSize(11);
+        statsRefsLabel.setTextSize(10);
         statsRefsLabel.setTypeface(null, Typeface.BOLD);
         statsRefsCard.addView(statsRefsValue);
         statsRefsCard.addView(statsRefsLabel);
         LinearLayout.LayoutParams refCardLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        refCardLp.setMargins(0, 0, dp(6), 0);
+        refCardLp.setMargins(0, 0, dp(4), 0);
         statsRow.addView(statsRefsCard, refCardLp);
 
         statsUnitsCard = new LinearLayout(this);
         statsUnitsCard.setOrientation(LinearLayout.VERTICAL);
         statsUnitsCard.setGravity(Gravity.CENTER);
-        statsUnitsCard.setPadding(dp(12), dp(10), dp(12), dp(10));
+        statsUnitsCard.setPadding(dp(8), dp(8), dp(8), dp(8));
         statsUnitsValue = new TextView(this);
-        statsUnitsValue.setTextSize(22);
+        statsUnitsValue.setTextSize(20);
         statsUnitsValue.setTypeface(null, Typeface.BOLD);
         statsUnitsLabel = new TextView(this);
-        statsUnitsLabel.setTextSize(11);
+        statsUnitsLabel.setTextSize(10);
         statsUnitsLabel.setTypeface(null, Typeface.BOLD);
         statsUnitsCard.addView(statsUnitsValue);
         statsUnitsCard.addView(statsUnitsLabel);
         LinearLayout.LayoutParams unitCardLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        unitCardLp.setMargins(dp(6), 0, 0, 0);
+        unitCardLp.setMargins(dp(4), 0, dp(4), 0);
         statsRow.addView(statsUnitsCard, unitCardLp);
+
+        statsLowCard = new LinearLayout(this);
+        statsLowCard.setOrientation(LinearLayout.VERTICAL);
+        statsLowCard.setGravity(Gravity.CENTER);
+        statsLowCard.setPadding(dp(8), dp(8), dp(8), dp(8));
+        statsLowValue = new TextView(this);
+        statsLowValue.setTextSize(20);
+        statsLowValue.setTypeface(null, Typeface.BOLD);
+        statsLowLabel = new TextView(this);
+        statsLowLabel.setTextSize(10);
+        statsLowLabel.setTypeface(null, Typeface.BOLD);
+        statsLowCard.addView(statsLowValue);
+        statsLowCard.addView(statsLowLabel);
+        statsLowCard.setOnClickListener(v -> {
+            onlyLowStockFilter = !onlyLowStockFilter;
+            applyThemeAndLang();
+        });
+        LinearLayout.LayoutParams lowCardLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lowCardLp.setMargins(dp(4), 0, 0, 0);
+        statsRow.addView(statsLowCard, lowCardLp);
 
         rootLayout.addView(statsRow, statsRowLp);
 
+        // 4. BARRE DE RECHERCHE
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
         searchInput.setTextSize(14);
-        searchInput.setPadding(dp(14), dp(10), dp(14), dp(10));
+        searchInput.setPadding(dp(12), dp(9), dp(12), dp(9));
         searchInput.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -446,6 +841,7 @@ public class MainActivity extends AppCompatActivity {
         searchParams.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(searchInput, searchParams);
 
+        // 5. ZONE CENTRALE : FILIGRANE OU LISTE
         emptyContainer = new LinearLayout(this);
         emptyContainer.setOrientation(LinearLayout.VERTICAL);
         emptyContainer.setGravity(Gravity.CENTER);
@@ -453,8 +849,8 @@ public class MainActivity extends AppCompatActivity {
         emptyLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         loadLogoInto(emptyLogo);
         emptyLogo.setAlpha(0.22f);
-        LinearLayout.LayoutParams emptyLogoLp = new LinearLayout.LayoutParams(dp(120), dp(120));
-        emptyLogoLp.setMargins(0, 0, 0, dp(12));
+        LinearLayout.LayoutParams emptyLogoLp = new LinearLayout.LayoutParams(dp(110), dp(110));
+        emptyLogoLp.setMargins(0, 0, 0, dp(10));
         emptyContainer.addView(emptyLogo, emptyLogoLp);
 
         emptyText = new TextView(this);
@@ -471,10 +867,11 @@ public class MainActivity extends AppCompatActivity {
         listView.setAdapter(adapter);
         rootLayout.addView(listView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        // 6. BANDEAU DU TICKET DE CAISSE EN COURS
         exitTotalBanner = new LinearLayout(this);
         exitTotalBanner.setOrientation(LinearLayout.HORIZONTAL);
         exitTotalBanner.setGravity(Gravity.CENTER_VERTICAL);
-        exitTotalBanner.setPadding(dp(12), dp(8), dp(10), dp(8));
+        exitTotalBanner.setPadding(dp(12), dp(7), dp(10), dp(7));
         LinearLayout.LayoutParams bannerLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         bannerLp.setMargins(0, dp(6), 0, dp(4));
 
@@ -511,11 +908,11 @@ public class MainActivity extends AppCompatActivity {
         exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(34), dp(32)));
         rootLayout.addView(exitTotalBanner, bannerLp);
 
-        // BARRE D'ACTIONS EN BAS SOUS LE POUCE
+        // 7. BARRE D'ACTIONS EN BAS SOUS LE POUCE
         bottomBarLayout = new LinearLayout(this);
         bottomBarLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actParams.setMargins(0, dp(8), 0, dp(2));
+        actParams.setMargins(0, dp(6), 0, dp(2));
 
         btnEntry = new Button(this);
         btnEntry.setTextSize(16);
@@ -523,7 +920,7 @@ public class MainActivity extends AppCompatActivity {
         btnEntry.setTextColor(Color.WHITE);
         btnEntry.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(14), dp(2), Color.parseColor("#34D399")));
         btnEntry.setOnClickListener(v -> handleEntryAction());
-        LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
+        LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, dp(52), 1f);
         btnInParams.setMargins(0, 0, dp(6), 0);
         bottomBarLayout.addView(btnEntry, btnInParams);
 
@@ -533,7 +930,7 @@ public class MainActivity extends AppCompatActivity {
         btnExit.setTextColor(Color.WHITE);
         btnExit.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(14), dp(2), Color.parseColor("#F87171")));
         btnExit.setOnClickListener(v -> handleExitAction());
-        LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
+        LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, dp(52), 1f);
         btnOutParams.setMargins(dp(6), 0, 0, 0);
         bottomBarLayout.addView(btnExit, btnOutParams);
 
@@ -542,6 +939,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleEntryAction() {
+        if (!isAccessAllowed()) { showPaywallUI(); return; }
         if (useScanner) {
             startBarcodeScan(true);
         } else {
@@ -549,7 +947,7 @@ public class MainActivity extends AppCompatActivity {
             newProd.barcode = "";
             newProd.name = "";
             newProd.quantity = 0;
-            newProd.imageBase64 = "";
+            newProd.imagePath = "";
             newProd.stockName = currentStock;
             if (!selectedCategoryFilter.equals("ALL") && categoriesList.contains(selectedCategoryFilter)) {
                 newProd.category = selectedCategoryFilter;
@@ -562,6 +960,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleExitAction() {
+        if (!isAccessAllowed()) { showPaywallUI(); return; }
         if (useScanner) {
             startBarcodeScan(false);
         } else {
@@ -585,10 +984,21 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.setBackgroundColor(bgColor);
 
+        if (isProUnlocked()) {
+            trialBannerText.setVisibility(View.GONE);
+        } else {
+            trialBannerText.setVisibility(View.VISIBLE);
+            trialBannerText.setText(String.format(Locale.getDefault(), tr("trial_banner_fmt"), getRemainingTrialDays(), formattedLaunchPrice));
+        }
+
         SpannableString styledTitle = new SpannableString("OptiStock");
         styledTitle.setSpan(new ForegroundColorSpan(textColor), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         styledTitle.setSpan(new ForegroundColorSpan(cyanHighlight), 4, 9, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         titleText.setText(styledTitle);
+
+        btnHistory.setText(tr("hist_btn"));
+        btnHistory.setTextColor(textColor);
+        btnHistory.setBackground(createRoundedBg(cardColor, dp(10), dp(1), borderSubtle));
 
         btnPdf.setText(tr("pdf_btn"));
         btnPdf.setTextColor(Color.WHITE);
@@ -617,6 +1027,15 @@ public class MainActivity extends AppCompatActivity {
         statsUnitsLabel.setTextColor(subTextColor);
         statsUnitsLabel.setText(tr("units"));
 
+        if (onlyLowStockFilter) {
+            statsLowCard.setBackground(createRoundedBg(Color.parseColor("#451A03"), dp(12), dp(2), Color.parseColor("#F59E0B")));
+        } else {
+            statsLowCard.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
+        }
+        statsLowValue.setTextColor(Color.parseColor("#F59E0B"));
+        statsLowLabel.setTextColor(onlyLowStockFilter ? Color.parseColor("#FBBF24") : subTextColor);
+        statsLowLabel.setText(tr("low_stock"));
+
         btnEntry.setText(tr("btn_in"));
         btnExit.setText(tr("btn_out"));
         btnOpenReceipt.setText(tr("btn_receipt_view"));
@@ -634,15 +1053,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateStats() {
-        int totalRefs = 0, totalUnits = 0;
+        int totalRefs = 0, totalUnits = 0, lowCount = 0;
         for (Product p : inventory) {
             if (currentStock.equals(p.stockName)) {
                 totalRefs++;
                 totalUnits += p.quantity;
+                if (p.quantity <= lowStockThreshold) lowCount++;
             }
         }
         statsRefsValue.setText(String.valueOf(totalRefs));
         statsUnitsValue.setText(String.valueOf(totalUnits));
+        statsLowValue.setText(String.valueOf(lowCount));
 
         emptyContainer.setVisibility(filteredInventory.isEmpty() ? View.VISIBLE : View.GONE);
         listView.setVisibility(filteredInventory.isEmpty() ? View.GONE : View.VISIBLE);
@@ -663,7 +1084,132 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private String buildReceiptText() {
+    // ==================== HISTORIQUE DES MOUVEMENTS ====================
+
+    private void recordMovement(String type, String barcode, String productName, int qty, String stockName, double unitPrice) {
+        if (qty <= 0) return;
+        Movement m = new Movement();
+        m.timestamp = System.currentTimeMillis();
+        m.type = type;
+        m.barcode = barcode;
+        m.productName = productName;
+        m.quantity = qty;
+        m.stockName = stockName;
+        m.unitPrice = unitPrice;
+        movementsHistory.add(0, m);
+        while (movementsHistory.size() > 500) {
+            movementsHistory.remove(movementsHistory.size() - 1);
+        }
+    }
+
+    private void showHistoryDialog() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(12), dp(16), dp(12));
+        scroll.addView(box);
+
+        if (movementsHistory.isEmpty()) {
+            TextView emptyTv = new TextView(this);
+            emptyTv.setText(tr("history_empty"));
+            emptyTv.setGravity(Gravity.CENTER);
+            emptyTv.setPadding(dp(16), dp(30), dp(16), dp(30));
+            box.addView(emptyTv);
+        } else {
+            SimpleDateFormat sdf = new SimpleDateFormat("dd/MM HH:mm", Locale.getDefault());
+            int limit = Math.min(movementsHistory.size(), 80);
+            for (int i = 0; i < limit; i++) {
+                Movement m = movementsHistory.get(i);
+                boolean isIn = "IN".equals(m.type);
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(10), dp(8), dp(10), dp(8));
+                row.setBackground(createRoundedBg(Color.parseColor("#1E293B"), dp(10), dp(1), isIn ? Color.parseColor("#059669") : Color.parseColor("#DC2626")));
+                LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rLp.setMargins(0, 0, 0, dp(6));
+
+                LinearLayout left = new LinearLayout(this);
+                left.setOrientation(LinearLayout.VERTICAL);
+                TextView pTv = new TextView(this);
+                pTv.setText((isIn ? "🟢 " : "🔴 ") + m.productName);
+                pTv.setTextColor(Color.WHITE);
+                pTv.setTextSize(13);
+                pTv.setTypeface(null, Typeface.BOLD);
+
+                String sub = sdf.format(new Date(m.timestamp)) + "  •  🏢 " + m.stockName;
+                if (usePrices && m.unitPrice > 0) {
+                    sub += String.format(Locale.getDefault(), "  •  %.2f €", m.quantity * m.unitPrice);
+                }
+                TextView dTv = new TextView(this);
+                dTv.setText(sub);
+                dTv.setTextColor(Color.parseColor("#94A3B8"));
+                dTv.setTextSize(11);
+
+                left.addView(pTv);
+                left.addView(dTv);
+                row.addView(left, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+                TextView qTv = new TextView(this);
+                qTv.setText((isIn ? "+" : "-") + m.quantity);
+                qTv.setTextColor(isIn ? Color.parseColor("#34D399") : Color.parseColor("#F87171"));
+                qTv.setTextSize(15);
+                qTv.setTypeface(null, Typeface.BOLD);
+                row.addView(qTv);
+
+                box.addView(row, rLp);
+            }
+        }
+
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(tr("history_title"))
+                .setView(scroll)
+                .setNegativeButton(tr("cancel"), null);
+
+        if (!movementsHistory.isEmpty()) {
+            b.setPositiveButton(tr("history_csv_btn"), (d, w) -> startHistoryCsvExport());
+            b.setNeutralButton(tr("history_clear_btn"), (d, w) -> {
+                movementsHistory.clear();
+                saveData();
+            });
+        }
+        b.show();
+    }
+
+    private void startHistoryCsvExport() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/csv");
+        intent.putExtra(Intent.EXTRA_TITLE, "OptiStock_Historique_" + new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date()) + ".csv");
+        startActivityForResult(intent, REQ_EXPORT_HISTORY_CSV);
+    }
+
+    private void generateHistoryCsvToUri(Uri uri) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("\uFEFFDate;Type;Stock;Code;Produit;Quantite;Prix_Unitaire;Total\n");
+            SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault());
+            for (Movement m : movementsHistory) {
+                String typeStr = "IN".equals(m.type) ? "ENTREE" : "SORTIE";
+                String cleanName = m.productName != null ? m.productName.replace(";", ",") : "";
+                String cleanStock = m.stockName != null ? m.stockName.replace(";", ",") : "";
+                sb.append(String.format(Locale.getDefault(), "%s;%s;%s;%s;%s;%d;%.2f;%.2f\n",
+                        sdf.format(new Date(m.timestamp)), typeStr, cleanStock, m.barcode, cleanName, m.quantity, m.unitPrice, m.quantity * m.unitPrice));
+            }
+            OutputStream os = getContentResolver().openOutputStream(uri);
+            if (os != null) {
+                os.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+                os.close();
+            }
+            Toast.makeText(this, tr("csv_ok"), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur CSV : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // ==================== TICKET DE CAISSE (REMISE + PDF + MAIL) ====================
+
+    private String buildReceiptText(double discountVal, boolean isPercent) {
         StringBuilder sb = new StringBuilder();
         String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
         sb.append("================================\n");
@@ -675,11 +1221,11 @@ public class MainActivity extends AppCompatActivity {
         sb.append("  Stock : ").append(currentStock).append("\n");
         sb.append("================================\n\n");
 
-        double grandTotal = 0.0;
+        double subtotal = 0.0;
         int totalQty = 0;
         for (ReceiptItem item : currentReceipt) {
             double lineTotal = item.quantity * item.unitPrice;
-            grandTotal += lineTotal;
+            subtotal += lineTotal;
             totalQty += item.quantity;
             String pName = item.name != null ? item.name : item.barcode;
             if (pName.length() > 22) pName = pName.substring(0, 20) + "..";
@@ -687,9 +1233,18 @@ public class MainActivity extends AppCompatActivity {
             sb.append(String.format(Locale.getDefault(), "  %d x %.2f €  =  %.2f €\n", item.quantity, item.unitPrice, lineTotal));
         }
 
+        double discountAmt = isPercent ? subtotal * (discountVal / 100.0) : discountVal;
+        discountAmt = Math.max(0.0, Math.min(subtotal, discountAmt));
+        double finalTotal = subtotal - discountAmt;
+
         sb.append("\n--------------------------------\n");
         sb.append(String.format(Locale.getDefault(), "ARTICLES SORTIS : %d\n", totalQty));
-        sb.append(String.format(Locale.getDefault(), "TOTAL À PAYER   : %.2f €\n", grandTotal));
+        if (discountAmt > 0.001) {
+            sb.append(String.format(Locale.getDefault(), "SOUS-TOTAL      : %.2f €\n", subtotal));
+            String discTag = isPercent ? String.format(Locale.getDefault(), "REMISE (%.0f%%)   ", discountVal) : "REMISE          ";
+            sb.append(String.format(Locale.getDefault(), "%s: -%.2f €\n", discTag, discountAmt));
+        }
+        sb.append(String.format(Locale.getDefault(), "TOTAL À PAYER   : %.2f €\n", finalTotal));
         sb.append("================================\n");
         sb.append("   Merci de votre confiance !\n");
         return sb.toString();
@@ -699,17 +1254,86 @@ public class MainActivity extends AppCompatActivity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(18), dp(14), dp(18), dp(14));
+        box.setPadding(dp(16), dp(12), dp(16), dp(12));
         scroll.addView(box);
 
+        final double[] discVal = {0.0};
+        final boolean[] discIsPct = {true};
+
+        LinearLayout discRow = new LinearLayout(this);
+        discRow.setOrientation(LinearLayout.HORIZONTAL);
+        discRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams discRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        discRowLp.setMargins(0, 0, 0, dp(8));
+
+        TextView discTv = new TextView(this);
+        discTv.setText(tr("discount_label"));
+        discTv.setTypeface(null, Typeface.BOLD);
+        discTv.setTextSize(13);
+        discRow.addView(discTv);
+
+        EditText discInput = new EditText(this);
+        discInput.setHint("0");
+        discInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        discInput.setGravity(Gravity.CENTER);
+        discInput.setSingleLine(true);
+        LinearLayout.LayoutParams dInLp = new LinearLayout.LayoutParams(dp(72), dp(40));
+        dInLp.setMargins(dp(8), 0, dp(6), 0);
+        discRow.addView(discInput, dInLp);
+
+        Button btnToggleUnit = new Button(this);
+        btnToggleUnit.setText("%");
+        btnToggleUnit.setTypeface(null, Typeface.BOLD);
+        btnToggleUnit.setTextColor(Color.WHITE);
+        btnToggleUnit.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(8)));
+        discRow.addView(btnToggleUnit, new LinearLayout.LayoutParams(dp(44), dp(38)));
+
+        Button btnReceiptPdf = new Button(this);
+        btnReceiptPdf.setText(tr("receipt_pdf_btn"));
+        btnReceiptPdf.setAllCaps(false);
+        btnReceiptPdf.setTextSize(12);
+        btnReceiptPdf.setTypeface(null, Typeface.BOLD);
+        btnReceiptPdf.setTextColor(Color.WHITE);
+        btnReceiptPdf.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(8)));
+        LinearLayout.LayoutParams rPdfLp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        rPdfLp.setMargins(dp(8), 0, 0, 0);
+        discRow.addView(btnReceiptPdf, rPdfLp);
+
+        box.addView(discRow, discRowLp);
+
         TextView ticketView = new TextView(this);
-        ticketView.setText(buildReceiptText());
+        ticketView.setText(buildReceiptText(0.0, true));
         ticketView.setTypeface(Typeface.MONOSPACE);
         ticketView.setTextSize(12);
         ticketView.setTextColor(Color.parseColor("#0F172A"));
         ticketView.setBackground(createRoundedBg(Color.parseColor("#F8FAFC"), dp(10), dp(1), Color.parseColor("#CBD5E1")));
-        ticketView.setPadding(dp(14), dp(14), dp(14), dp(14));
+        ticketView.setPadding(dp(14), dp(12), dp(14), dp(12));
         box.addView(ticketView);
+
+        Runnable refreshTicketPreview = () -> {
+            double v = 0.0;
+            try { v = Double.parseDouble(discInput.getText().toString().trim().replace(",", ".")); } catch (Exception ignored) {}
+            discVal[0] = Math.max(0.0, v);
+            ticketView.setText(buildReceiptText(discVal[0], discIsPct[0]));
+        };
+
+        btnToggleUnit.setOnClickListener(v -> {
+            discIsPct[0] = !discIsPct[0];
+            btnToggleUnit.setText(discIsPct[0] ? "%" : "€");
+            refreshTicketPreview.run();
+        });
+
+        discInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { refreshTicketPreview.run(); }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+
+        btnReceiptPdf.setOnClickListener(v -> {
+            pendingReceiptDiscountVal = discVal[0];
+            pendingReceiptDiscountPct = discIsPct[0];
+            startReceiptPdfExport();
+        });
 
         TextView senderInfoTv = new TextView(this);
         String senderStatus = senderEmail.isEmpty()
@@ -821,13 +1445,104 @@ public class MainActivity extends AppCompatActivity {
                     saveData();
                 }
                 String subject = "Ticket de caisse - " + (shopName.isEmpty() ? "OptiStock" : shopName);
-                String body = buildReceiptText();
+                String body = buildReceiptText(discVal[0], discIsPct[0]);
                 dialog.dismiss();
                 dispatchReceiptEmail(targetEmail, subject, body);
             });
         });
 
         dialog.show();
+    }
+
+    private void startReceiptPdfExport() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/pdf");
+        intent.putExtra(Intent.EXTRA_TITLE, "Ticket_" + new SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.getDefault()).format(new Date()) + ".pdf");
+        startActivityForResult(intent, REQ_CREATE_RECEIPT_PDF);
+    }
+
+    private void generateReceiptPdfToUri(Uri uri, double discountVal, boolean isPercent) {
+        try {
+            PdfDocument pdf = new PdfDocument();
+            Paint paint = new Paint();
+            Paint linePaint = new Paint();
+            linePaint.setColor(Color.LTGRAY);
+            linePaint.setStrokeWidth(1f);
+
+            int pageWidth = 420, pageHeight = 680, pageNumber = 1, y = 45;
+            PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
+            PdfDocument.Page page = pdf.startPage(pageInfo);
+            Canvas canvas = page.getCanvas();
+
+            String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
+            paint.setTextSize(18f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
+            canvas.drawText(title, 30, y, paint);
+            paint.setTextSize(10f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+            y += 16;
+            if (!senderEmail.isEmpty()) {
+                canvas.drawText(senderEmail, 30, y, paint);
+                y += 14;
+            }
+            canvas.drawText("Ticket de caisse • " + new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date()), 30, y, paint);
+            y += 14;
+            canvas.drawText("Stock : " + currentStock, 30, y, paint);
+            y += 16; canvas.drawLine(30, y, 390, y, linePaint); y += 16;
+
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            canvas.drawText("Article", 30, y, paint);
+            canvas.drawText("Qté", 230, y, paint);
+            canvas.drawText("P.U.", 275, y, paint);
+            canvas.drawText("Total", 340, y, paint);
+            y += 8; canvas.drawLine(30, y, 390, y, linePaint); y += 16;
+
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+            double subtotal = 0.0;
+            for (ReceiptItem item : currentReceipt) {
+                if (y > 600) {
+                    pdf.finishPage(page);
+                    pageNumber++;
+                    pageInfo = new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create();
+                    page = pdf.startPage(pageInfo);
+                    canvas = page.getCanvas();
+                    y = 45;
+                }
+                double lineTotal = item.quantity * item.unitPrice;
+                subtotal += lineTotal;
+                String pName = item.name != null ? item.name : item.barcode;
+                canvas.drawText(pName.length() > 26 ? pName.substring(0, 24) + ".." : pName, 30, y, paint);
+                canvas.drawText(String.valueOf(item.quantity), 235, y, paint);
+                canvas.drawText(String.format(Locale.getDefault(), "%.2f €", item.unitPrice), 275, y, paint);
+                canvas.drawText(String.format(Locale.getDefault(), "%.2f €", lineTotal), 340, y, paint);
+                y += 20;
+            }
+
+            double discountAmt = isPercent ? subtotal * (discountVal / 100.0) : discountVal;
+            discountAmt = Math.max(0.0, Math.min(subtotal, discountAmt));
+            double finalTotal = subtotal - discountAmt;
+
+            y += 6; canvas.drawLine(30, y, 390, y, linePaint); y += 18;
+            if (discountAmt > 0.001) {
+                canvas.drawText(String.format(Locale.getDefault(), "Sous-total : %.2f €", subtotal), 240, y, paint);
+                y += 16;
+                canvas.drawText(String.format(Locale.getDefault(), "Remise : -%.2f €", discountAmt), 240, y, paint);
+                y += 18;
+            }
+            paint.setTextSize(13f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            canvas.drawText(String.format(Locale.getDefault(), "TOTAL À PAYER : %.2f €", finalTotal), 210, y, paint);
+
+            y += 28;
+            paint.setTextSize(9f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+            canvas.drawText("Merci de votre confiance • Généré par OptiStock (GoDev)", 30, y, paint);
+
+            pdf.finishPage(page);
+            OutputStream os = getContentResolver().openOutputStream(uri);
+            if (os != null) { pdf.writeTo(os); os.close(); }
+            pdf.close();
+            Toast.makeText(this, tr("pdf_ok"), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur Ticket PDF : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void dispatchReceiptEmail(String toEmail, String subject, String bodyText) {
@@ -878,7 +1593,7 @@ public class MainActivity extends AppCompatActivity {
             SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
             SSLSocket socket = (SSLSocket) factory.createSocket(host, 465);
             socket.setSoTimeout(8000);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
+            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
             PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
 
             reader.readLine();
@@ -889,9 +1604,9 @@ public class MainActivity extends AppCompatActivity {
             }
             writer.println("AUTH LOGIN");
             reader.readLine();
-            writer.println(Base64.encodeToString(fromUser.getBytes("UTF-8"), Base64.NO_WRAP));
+            writer.println(Base64.encodeToString(fromUser.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
             reader.readLine();
-            writer.println(Base64.encodeToString(appPass.replace(" ", "").getBytes("UTF-8"), Base64.NO_WRAP));
+            writer.println(Base64.encodeToString(appPass.replace(" ", "").getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
             String authResp = reader.readLine();
             if (authResp == null || !authResp.startsWith("235")) {
                 socket.close();
@@ -920,6 +1635,8 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
     }
+
+    // ==================== STOCKS & CATÉGORIES ====================
 
     private void showStockPopupMenu(View anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
@@ -1016,6 +1733,8 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
+    // ==================== OPTIONS & SAUVEGARDE / RESTAURATION ====================
+
     private void showOptionsDialog() {
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
@@ -1052,12 +1771,24 @@ public class MainActivity extends AppCompatActivity {
         Switch priceSwitch = new Switch(this);
         priceSwitch.setText(tr("opt_prices"));
         priceSwitch.setChecked(usePrices);
-        priceSwitch.setPadding(0, dp(6), 0, dp(14));
+        priceSwitch.setPadding(0, dp(6), 0, dp(12));
         box.addView(priceSwitch);
+
+        TextView threshTv = new TextView(this);
+        threshTv.setText(tr("opt_low_thresh"));
+        threshTv.setTypeface(null, Typeface.BOLD);
+        box.addView(threshTv);
+
+        EditText threshInput = new EditText(this);
+        threshInput.setText(String.valueOf(lowStockThreshold));
+        threshInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        threshInput.setSingleLine(true);
+        box.addView(threshInput);
 
         TextView shopTv = new TextView(this);
         shopTv.setText(tr("opt_shop_name"));
         shopTv.setTypeface(null, Typeface.BOLD);
+        shopTv.setPadding(0, dp(10), 0, 0);
         box.addView(shopTv);
 
         EditText shopInput = new EditText(this);
@@ -1092,6 +1823,24 @@ public class MainActivity extends AppCompatActivity {
         passInput.setSingleLine(true);
         box.addView(passInput);
 
+        TextView backupTv = new TextView(this);
+        backupTv.setText(tr("backup_section"));
+        backupTv.setTypeface(null, Typeface.BOLD);
+        backupTv.setPadding(0, dp(16), 0, dp(6));
+        box.addView(backupTv);
+
+        Button btnExportBackup = new Button(this);
+        btnExportBackup.setText(tr("backup_export_btn"));
+        btnExportBackup.setAllCaps(false);
+        btnExportBackup.setOnClickListener(v -> startBackupExport());
+        box.addView(btnExportBackup);
+
+        Button btnImportBackup = new Button(this);
+        btnImportBackup.setText(tr("backup_import_btn"));
+        btnImportBackup.setAllCaps(false);
+        btnImportBackup.setOnClickListener(v -> startBackupImport());
+        box.addView(btnImportBackup);
+
         new AlertDialog.Builder(this)
                 .setTitle(tr("options_title"))
                 .setView(scroll)
@@ -1100,6 +1849,9 @@ public class MainActivity extends AppCompatActivity {
                     isDarkMode = darkSwitch.isChecked();
                     useScanner = scannerSwitch.isChecked();
                     usePrices = priceSwitch.isChecked();
+                    try {
+                        lowStockThreshold = Math.max(0, Integer.parseInt(threshInput.getText().toString().trim()));
+                    } catch (Exception ignored) {}
                     shopName = shopInput.getText().toString().trim();
                     if (shopName.isEmpty()) shopName = "OptiStock";
                     senderEmail = senderInput.getText().toString().trim();
@@ -1109,6 +1861,7 @@ public class MainActivity extends AppCompatActivity {
                             .putBoolean("darkMode", isDarkMode)
                             .putBoolean("useScanner", useScanner)
                             .putBoolean("usePrices", usePrices)
+                            .putInt("lowStockThreshold", lowStockThreshold)
                             .putString("shopName", shopName)
                             .putString("senderEmail", senderEmail)
                             .putString("senderAppPass", senderAppPass)
@@ -1118,6 +1871,110 @@ public class MainActivity extends AppCompatActivity {
                 .setNegativeButton(tr("cancel"), null)
                 .show();
     }
+
+    private void startBackupExport() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        intent.putExtra(Intent.EXTRA_TITLE, "OptiStock_Sauvegarde_" + new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date()) + ".json");
+        startActivityForResult(intent, REQ_EXPORT_BACKUP);
+    }
+
+    private void generateBackupToUri(Uri uri) {
+        try {
+            saveData();
+            JSONObject backup = new JSONObject();
+            backup.put("version", 2);
+            backup.put("exportedAt", System.currentTimeMillis());
+            backup.put("inventory_json", prefs.getString("inventory_json", "[]"));
+            backup.put("stocks_json", prefs.getString("stocks_json", "[]"));
+            backup.put("cats_json", prefs.getString("cats_json", "[]"));
+            backup.put("clients_json", prefs.getString("clients_json", "[]"));
+            backup.put("history_json", prefs.getString("history_json", "[]"));
+            backup.put("currentStock", currentStock);
+            backup.put("shopName", shopName);
+            backup.put("senderEmail", senderEmail);
+            backup.put("lowStockThreshold", lowStockThreshold);
+
+            JSONObject photosMap = new JSONObject();
+            for (Product p : inventory) {
+                if (p.imagePath != null && !p.imagePath.isEmpty()) {
+                    String b64 = fileToBase64(p.imagePath);
+                    if (!b64.isEmpty()) photosMap.put(p.imagePath, b64);
+                }
+            }
+            backup.put("photos_map", photosMap);
+
+            OutputStream os = getContentResolver().openOutputStream(uri);
+            if (os != null) {
+                os.write(backup.toString().getBytes(StandardCharsets.UTF_8));
+                os.close();
+            }
+            Toast.makeText(this, tr("backup_ok"), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur sauvegarde : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void startBackupImport() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(intent, REQ_IMPORT_BACKUP);
+    }
+
+    private void restoreBackupFromUri(Uri uri) {
+        try {
+            InputStream is = getContentResolver().openInputStream(uri);
+            if (is == null) return;
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
+            is.close();
+
+            JSONObject backup = new JSONObject(baos.toString("UTF-8"));
+            if (backup.has("photos_map")) {
+                JSONObject photosMap = backup.getJSONObject("photos_map");
+                Iterator<String> keys = photosMap.keys();
+                while (keys.hasNext()) {
+                    String fileName = keys.next();
+                    String b64 = photosMap.optString(fileName, "");
+                    if (!b64.isEmpty()) base64ToFile(b64, fileName);
+                }
+            }
+
+            SharedPreferences.Editor ed = prefs.edit();
+            if (backup.has("inventory_json")) ed.putString("inventory_json", backup.getString("inventory_json"));
+            if (backup.has("stocks_json")) ed.putString("stocks_json", backup.getString("stocks_json"));
+            if (backup.has("cats_json")) ed.putString("cats_json", backup.getString("cats_json"));
+            if (backup.has("clients_json")) ed.putString("clients_json", backup.getString("clients_json"));
+            if (backup.has("history_json")) ed.putString("history_json", backup.getString("history_json"));
+            if (backup.has("currentStock")) ed.putString("currentStock", backup.getString("currentStock"));
+            if (backup.has("shopName")) {
+                shopName = backup.getString("shopName");
+                ed.putString("shopName", shopName);
+            }
+            if (backup.has("senderEmail")) {
+                senderEmail = backup.getString("senderEmail");
+                ed.putString("senderEmail", senderEmail);
+            }
+            if (backup.has("lowStockThreshold")) {
+                lowStockThreshold = backup.getInt("lowStockThreshold");
+                ed.putInt("lowStockThreshold", lowStockThreshold);
+            }
+            ed.apply();
+
+            bitmapCache.clear();
+            loadData();
+            applyThemeAndLang();
+            Toast.makeText(this, tr("restore_ok"), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur restauration : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // ==================== SCAN & TRANSACTIONS PRODUITS ====================
 
     private void startBarcodeScan(boolean isEntry) {
         GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
@@ -1163,7 +2020,7 @@ public class MainActivity extends AppCompatActivity {
                 Product copy = new Product();
                 copy.barcode = barcode;
                 copy.name = fromOtherStock.name;
-                copy.imageBase64 = fromOtherStock.imageBase64;
+                copy.imagePath = fromOtherStock.imagePath;
                 copy.category = fromOtherStock.category;
                 copy.price = fromOtherStock.price;
                 copy.stockName = currentStock;
@@ -1183,7 +2040,7 @@ public class MainActivity extends AppCompatActivity {
         loadingDialog.show();
 
         executor.execute(() -> {
-            String foundName = "", foundImgBase64 = "";
+            String foundName = "", foundImgPath = "";
             String[] apis = {
                 "https://world.openfoodfacts.org/api/v2/product/" + barcode + ".json",
                 "https://world.openproductsfacts.org/api/v2/product/" + barcode + ".json"
@@ -1205,20 +2062,20 @@ public class MainActivity extends AppCompatActivity {
                             foundName = prod.optString("product_name_fr", "");
                             if (foundName.isEmpty()) foundName = prod.optString("product_name", "");
                             String imgUrl = prod.optString("image_front_small_url", "");
-                            if (!imgUrl.isEmpty()) foundImgBase64 = downloadImageAsBase64(imgUrl);
+                            if (!imgUrl.isEmpty()) foundImgPath = downloadImageAndSave(imgUrl);
                             if (!foundName.isEmpty()) break;
                         }
                     }
                 } catch (Exception ignored) {}
             }
-            final String finalName = foundName, finalImg = foundImgBase64;
+            final String finalName = foundName, finalImgPath = foundImgPath;
             mainHandler.post(() -> {
                 loadingDialog.dismiss();
                 Product newProd = new Product();
                 newProd.barcode = barcode;
                 newProd.name = finalName;
                 newProd.quantity = 0;
-                newProd.imageBase64 = finalImg;
+                newProd.imagePath = finalImgPath;
                 newProd.stockName = currentStock;
                 newProd.category = categoriesList.isEmpty() ? tr("uncategorized") : categoriesList.get(0);
                 newProd.price = 0.0;
@@ -1227,11 +2084,11 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private String downloadImageAsBase64(String urlStr) {
+    private String downloadImageAndSave(String urlStr) {
         try {
             InputStream is = new URL(urlStr).openStream();
             Bitmap bmp = BitmapFactory.decodeStream(is);
-            return bmp != null ? bitmapToBase64(bmp) : "";
+            return bmp != null ? saveBitmapToInternalStorage(bmp) : "";
         } catch (Exception e) { return ""; }
     }
 
@@ -1253,7 +2110,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showProductTransactionDialog(Product product, boolean isEntry, boolean isNew, boolean fromListClick) {
-        tempPhotoBase64 = product.imageBase64 != null ? product.imageBase64 : "";
+        tempPhotoPath = product.imagePath != null ? product.imagePath : "";
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -1269,8 +2126,8 @@ public class MainActivity extends AppCompatActivity {
         currentPhotoPreview = new ImageView(this);
         currentPhotoPreview.setScaleType(ImageView.ScaleType.CENTER_CROP);
         currentPhotoPreview.setBackground(createRoundedBg(Color.parseColor("#CBD5E1"), dp(10)));
-        if (!tempPhotoBase64.isEmpty()) {
-            Bitmap b = base64ToBitmap(tempPhotoBase64);
+        if (!tempPhotoPath.isEmpty()) {
+            Bitmap b = loadBitmapFromInternalStorage(tempPhotoPath);
             if (b != null) currentPhotoPreview.setImageBitmap(b);
         }
         LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(76), dp(76));
@@ -1436,7 +2293,6 @@ public class MainActivity extends AppCompatActivity {
         });
         updateLiveTotal.run();
 
-        // Fonction commune de validation (Entrée ou Sortie)
         final boolean[] actionMode = {isEntry};
         Runnable commitTransaction = () -> {
             boolean doEntry = actionMode[0];
@@ -1447,7 +2303,6 @@ public class MainActivity extends AppCompatActivity {
             String enteredName = nameInput.getText().toString().trim();
 
             if (enteredCode.isEmpty()) {
-                // Si un produit du même nom existe déjà dans ce stock, on l'utilise
                 Product sameNameProd = findProductByNameInCurrentStock(enteredName);
                 if (sameNameProd != null && isNew) {
                     enteredCode = sameNameProd.barcode;
@@ -1486,16 +2341,19 @@ public class MainActivity extends AppCompatActivity {
             }
 
             targetProduct.name = enteredName;
-            if (!tempPhotoBase64.isEmpty()) targetProduct.imageBase64 = tempPhotoBase64;
+            if (!tempPhotoPath.isEmpty()) targetProduct.imagePath = tempPhotoPath;
             targetProduct.category = chosenCat;
             targetProduct.stockName = currentStock;
             if (usePrices) targetProduct.price = parsedPrice;
 
             if (doEntry) {
-                targetProduct.quantity += Math.max(0, delta);
+                int added = Math.max(0, delta);
+                targetProduct.quantity += added;
+                recordMovement("IN", targetProduct.barcode, targetProduct.name, added, currentStock, targetProduct.price);
             } else {
                 int actualRemoved = Math.min(targetProduct.quantity, Math.max(0, delta));
                 targetProduct.quantity = Math.max(0, targetProduct.quantity - delta);
+                recordMovement("OUT", targetProduct.barcode, targetProduct.name, actualRemoved, currentStock, targetProduct.price);
                 if (usePrices && actualRemoved > 0) {
                     lastExitTotal = actualRemoved * targetProduct.price;
                     addOrUpdateReceiptItem(targetProduct.barcode, targetProduct.name, actualRemoved, targetProduct.price);
@@ -1518,7 +2376,6 @@ public class MainActivity extends AppCompatActivity {
                 .setNegativeButton(tr("cancel"), null);
 
         if (fromListClick) {
-            // Clic sur un produit de la liste : bouton principal "🔴 SORTIE" + bouton "🟢 + ENTRÉE"
             builder.setPositiveButton(tr("action_exit"), (d, w) -> {
                 actionMode[0] = false;
                 commitTransaction.run();
@@ -1560,9 +2417,10 @@ public class MainActivity extends AppCompatActivity {
             ImageView img = new ImageView(MainActivity.this);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
             img.setBackground(createRoundedBg(Color.parseColor("#1E293B"), dp(10)));
-            if (p.imageBase64 != null && !p.imageBase64.isEmpty()) {
-                Bitmap b = base64ToBitmap(p.imageBase64);
+            if (p.imagePath != null && !p.imagePath.isEmpty()) {
+                Bitmap b = loadBitmapFromInternalStorage(p.imagePath);
                 if (b != null) img.setImageBitmap(b);
+                else loadLogoInto(img);
             } else {
                 loadLogoInto(img);
             }
@@ -1596,12 +2454,11 @@ public class MainActivity extends AppCompatActivity {
             badge.setTypeface(null, Typeface.BOLD);
             badge.setTextColor(Color.WHITE);
             badge.setGravity(Gravity.CENTER);
-            int badgeColor = p.quantity == 0 ? Color.parseColor("#EF4444") : (p.quantity <= 3 ? Color.parseColor("#F59E0B") : Color.parseColor("#10B981"));
+            int badgeColor = p.quantity == 0 ? Color.parseColor("#EF4444") : (p.quantity <= lowStockThreshold ? Color.parseColor("#F59E0B") : Color.parseColor("#10B981"));
             badge.setBackground(createRoundedBg(badgeColor, dp(10)));
             badge.setPadding(dp(14), dp(8), dp(14), dp(8));
             card.addView(badge);
 
-            // Clic sur le produit : ouvre la boîte de dialogue permettant de choisir la quantité et de cliquer sur SORTIE
             card.setOnClickListener(v -> showProductTransactionDialog(p, false, false, true));
             return card;
         }
@@ -1612,6 +2469,7 @@ public class MainActivity extends AppCompatActivity {
         for (Product p : inventory) {
             if (!currentStock.equals(p.stockName)) continue;
             if (!selectedCategoryFilter.equals("ALL") && !selectedCategoryFilter.equals(p.category)) continue;
+            if (onlyLowStockFilter && p.quantity > lowStockThreshold) continue;
             if (searchQuery.isEmpty()
                     || p.name.toLowerCase().contains(searchQuery)
                     || p.barcode.toLowerCase().contains(searchQuery)
@@ -1689,8 +2547,8 @@ public class MainActivity extends AppCompatActivity {
                     canvas = page.getCanvas();
                     y = 50;
                 }
-                if (p.imageBase64 != null && !p.imageBase64.isEmpty()) {
-                    Bitmap b = base64ToBitmap(p.imageBase64);
+                if (p.imagePath != null && !p.imagePath.isEmpty()) {
+                    Bitmap b = loadBitmapFromInternalStorage(p.imagePath);
                     if (b != null) canvas.drawBitmap(Bitmap.createScaledBitmap(b, 32, 32, true), 40, y - 8, null);
                 }
                 canvas.drawText(p.name.length() > 30 ? p.name.substring(0, 27) + "..." : p.name, 85, y + 10, paint);
@@ -1724,15 +2582,26 @@ public class MainActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != Activity.RESULT_OK || data == null) return;
-        if (requestCode == REQ_CREATE_PDF && data.getData() != null) generatePdfToUri(data.getData());
-        else if (requestCode == REQ_TAKE_PHOTO && data.getExtras() != null) {
+        if (requestCode == REQ_CREATE_PDF && data.getData() != null) {
+            generatePdfToUri(data.getData());
+        } else if (requestCode == REQ_CREATE_RECEIPT_PDF && data.getData() != null) {
+            generateReceiptPdfToUri(data.getData(), pendingReceiptDiscountVal, pendingReceiptDiscountPct);
+        } else if (requestCode == REQ_EXPORT_BACKUP && data.getData() != null) {
+            generateBackupToUri(data.getData());
+        } else if (requestCode == REQ_IMPORT_BACKUP && data.getData() != null) {
+            restoreBackupFromUri(data.getData());
+        } else if (requestCode == REQ_EXPORT_HISTORY_CSV && data.getData() != null) {
+            generateHistoryCsvToUri(data.getData());
+        } else if (requestCode == REQ_TAKE_PHOTO && data.getExtras() != null) {
             Bitmap photo = (Bitmap) data.getExtras().get("data");
             if (photo != null) {
-                tempPhotoBase64 = bitmapToBase64(photo);
+                tempPhotoPath = saveBitmapToInternalStorage(photo);
                 if (currentPhotoPreview != null) currentPhotoPreview.setImageBitmap(photo);
             }
         }
     }
+
+    // ==================== PERSISTANCE & STOCKAGE FICHIERS INTERNES ====================
 
     private void saveData() {
         try {
@@ -1742,7 +2611,7 @@ public class MainActivity extends AppCompatActivity {
                 o.put("barcode", p.barcode);
                 o.put("name", p.name);
                 o.put("quantity", p.quantity);
-                o.put("imageBase64", p.imageBase64 != null ? p.imageBase64 : "");
+                o.put("imagePath", p.imagePath != null ? p.imagePath : "");
                 o.put("stockName", p.stockName != null ? p.stockName : currentStock);
                 o.put("category", p.category != null ? p.category : tr("uncategorized"));
                 o.put("price", p.price);
@@ -1763,12 +2632,25 @@ public class MainActivity extends AppCompatActivity {
                 ro.put("unitPrice", ri.unitPrice);
                 recArr.put(ro);
             }
+            JSONArray histArr = new JSONArray();
+            for (Movement m : movementsHistory) {
+                JSONObject mo = new JSONObject();
+                mo.put("timestamp", m.timestamp);
+                mo.put("type", m.type);
+                mo.put("barcode", m.barcode);
+                mo.put("productName", m.productName);
+                mo.put("quantity", m.quantity);
+                mo.put("stockName", m.stockName);
+                mo.put("unitPrice", m.unitPrice);
+                histArr.put(mo);
+            }
             prefs.edit()
                     .putString("inventory_json", prodArr.toString())
                     .putString("stocks_json", stArr.toString())
                     .putString("cats_json", catArr.toString())
                     .putString("clients_json", clientArr.toString())
                     .putString("receipt_json", recArr.toString())
+                    .putString("history_json", histArr.toString())
                     .putString("currentStock", currentStock)
                     .apply();
         } catch (Exception ignored) {}
@@ -1815,7 +2697,25 @@ public class MainActivity extends AppCompatActivity {
             }
         } catch (Exception ignored) {}
 
+        movementsHistory.clear();
+        try {
+            JSONArray histArr = new JSONArray(prefs.getString("history_json", "[]"));
+            for (int i = 0; i < histArr.length(); i++) {
+                JSONObject mo = histArr.getJSONObject(i);
+                Movement m = new Movement();
+                m.timestamp = mo.optLong("timestamp", System.currentTimeMillis());
+                m.type = mo.optString("type", "IN");
+                m.barcode = mo.optString("barcode", "");
+                m.productName = mo.optString("productName", "");
+                m.quantity = mo.optInt("quantity", 0);
+                m.stockName = mo.optString("stockName", stocksList.get(0));
+                m.unitPrice = mo.optDouble("unitPrice", 0.0);
+                movementsHistory.add(m);
+            }
+        } catch (Exception ignored) {}
+
         inventory.clear();
+        boolean migratedLegacyPhotos = false;
         try {
             JSONArray arr = new JSONArray(prefs.getString("inventory_json", "[]"));
             for (int i = 0; i < arr.length(); i++) {
@@ -1824,29 +2724,87 @@ public class MainActivity extends AppCompatActivity {
                 p.barcode = o.optString("barcode", "");
                 p.name = o.optString("name", "");
                 p.quantity = o.optInt("quantity", 0);
-                p.imageBase64 = o.optString("imageBase64", "");
+                p.imagePath = o.optString("imagePath", "");
+                String legacyB64 = o.optString("imageBase64", "");
+                if (p.imagePath.isEmpty() && !legacyB64.isEmpty()) {
+                    String newFile = "mig_" + i + "_" + System.currentTimeMillis() + ".jpg";
+                    base64ToFile(legacyB64, newFile);
+                    p.imagePath = newFile;
+                    migratedLegacyPhotos = true;
+                }
                 p.stockName = o.optString("stockName", stocksList.get(0));
                 p.category = o.optString("category", categoriesList.get(0));
                 p.price = o.optDouble("price", 0.0);
                 inventory.add(p);
             }
         } catch (Exception ignored) {}
+
+        if (migratedLegacyPhotos) {
+            saveData();
+        }
     }
 
-    private String bitmapToBase64(Bitmap bitmap) {
+    private File getPhotosDir() {
+        File dir = new File(getFilesDir(), "product_photos");
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    private String saveBitmapToInternalStorage(Bitmap bitmap) {
         try {
-            Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 160, 160, true);
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            scaled.compress(Bitmap.CompressFormat.JPEG, 75, baos);
-            return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
-        } catch (Exception e) { return ""; }
+            Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 240, 240, true);
+            String fileName = "img_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 999) + ".jpg";
+            File file = new File(getPhotosDir(), fileName);
+            FileOutputStream fos = new FileOutputStream(file);
+            scaled.compress(Bitmap.CompressFormat.JPEG, 80, fos);
+            fos.flush();
+            fos.close();
+            bitmapCache.put(fileName, scaled);
+            return fileName;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
-    private Bitmap base64ToBitmap(String b64) {
+    private Bitmap loadBitmapFromInternalStorage(String fileName) {
+        if (fileName == null || fileName.isEmpty()) return null;
+        if (bitmapCache.containsKey(fileName)) return bitmapCache.get(fileName);
+        try {
+            File file = new File(getPhotosDir(), fileName);
+            if (!file.exists()) return null;
+            Bitmap bmp = BitmapFactory.decodeFile(file.getAbsolutePath());
+            if (bmp != null) bitmapCache.put(fileName, bmp);
+            return bmp;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String fileToBase64(String fileName) {
+        try {
+            File file = new File(getPhotosDir(), fileName);
+            if (!file.exists()) return "";
+            FileInputStream fis = new FileInputStream(file);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = fis.read(buf)) != -1) baos.write(buf, 0, n);
+            fis.close();
+            return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void base64ToFile(String b64, String fileName) {
         try {
             byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
-            return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-        } catch (Exception e) { return null; }
+            File file = new File(getPhotosDir(), fileName);
+            FileOutputStream fos = new FileOutputStream(file);
+            fos.write(bytes);
+            fos.flush();
+            fos.close();
+        } catch (Exception ignored) {}
     }
 
     private GradientDrawable createRoundedBg(int color, int radiusPx) {
