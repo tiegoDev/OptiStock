@@ -49,7 +49,6 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.mlkit.vision.barcode.common.Barcode;
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
@@ -71,6 +70,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+@SuppressWarnings("deprecation")
 public class MainActivity extends AppCompatActivity {
 
     static class Product {
@@ -79,10 +79,10 @@ public class MainActivity extends AppCompatActivity {
         double price;
     }
 
-    private List<Product> inventory = new ArrayList<>();
-    private List<Product> filteredInventory = new ArrayList<>();
-    private List<String> stocksList = new ArrayList<>();
-    private List<String> categoriesList = new ArrayList<>();
+    private final List<Product> inventory = new ArrayList<>();
+    private final List<Product> filteredInventory = new ArrayList<>();
+    private final List<String> stocksList = new ArrayList<>();
+    private final List<String> categoriesList = new ArrayList<>();
 
     private String currentStock = "";
     private String selectedCategoryFilter = "ALL";
@@ -132,8 +132,11 @@ public class MainActivity extends AppCompatActivity {
         ImageView logoView = new ImageView(this);
         logoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
         int resId = getResources().getIdentifier("splash_logo", "drawable", getPackageName());
-        if (resId != 0) logoView.setImageResource(resId);
-        else logoView.setImageResource(android.R.drawable.ic_menu_box);
+        if (resId != 0) {
+            logoView.setImageResource(resId);
+        } else {
+            logoView.setImageResource(android.R.drawable.ic_menu_gallery);
+        }
 
         LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(280), dp(280));
         logoLp.gravity = Gravity.CENTER;
@@ -176,6 +179,7 @@ public class MainActivity extends AppCompatActivity {
         private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint framePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint whiteDot = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final int[] barPattern = {3,2,5,2,2,4,6,2,3,3,2,5,2,2,4,3,6,2,2,4,3,2,5,3,2,4,2,6,3,2,4,2,5,2,3,4,2,3,5,2,4,2,3,5,2,2,6,3,2,4,3,2};
 
         public BarcodeLaserView(Context context) {
@@ -193,9 +197,13 @@ public class MainActivity extends AppCompatActivity {
             textPaint.setTextSize(dp(12));
             textPaint.setTextAlign(Paint.Align.CENTER);
             textPaint.setTypeface(Typeface.MONOSPACE);
+            whiteDot.setColor(Color.WHITE);
         }
 
-        public void setProgress(float p) { this.progress = p; invalidate(); }
+        public void setProgress(float p) {
+            this.progress = p;
+            invalidate();
+        }
 
         @Override
         protected void onDraw(Canvas canvas) {
@@ -217,8 +225,6 @@ public class MainActivity extends AppCompatActivity {
             canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), glowPaint);
             canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), laserPaint);
             canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(4), glowPaint);
-            Paint whiteDot = new Paint(Paint.ANTI_ALIAS_FLAG);
-            whiteDot.setColor(Color.WHITE);
             canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(2), whiteDot);
             canvas.drawText("SCANNING... " + (int)(progress * 100) + "%", w / 2f, h - dp(4), textPaint);
         }
@@ -481,7 +487,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void deleteCurrentStock() {
         if (stocksList.size() <= 1) return;
-        inventory.removeIf(p -> currentStock.equals(p.stockName));
+        for (int i = inventory.size() - 1; i >= 0; i--) {
+            if (currentStock.equals(inventory.get(i).stockName)) {
+                inventory.remove(i);
+            }
+        }
         stocksList.remove(currentStock);
         currentStock = stocksList.get(0);
         saveData();
@@ -632,7 +642,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startBarcodeScan(boolean isEntry) {
-        GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS).enableAutoZoom().build();
+        GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
+                .enableAutoZoom()
+                .build();
         GmsBarcodeScanning.getClient(this, options).startScan()
                 .addOnSuccessListener(barcode -> {
                     String rawValue = barcode.getRawValue();
@@ -686,7 +699,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void fetchProductOnline(String barcode) {
-        AlertDialog loadingDialog = new AlertDialog.Builder(this).setMessage(tr("fetching") + "\n(" + barcode + ")").setCancelable(false).create();
+        AlertDialog loadingDialog = new AlertDialog.Builder(this)
+                .setMessage(tr("fetching") + "\n(" + barcode + ")")
+                .setCancelable(false)
+                .create();
         loadingDialog.show();
 
         executor.execute(() -> {
@@ -865,27 +881,20 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout quickBtns = new LinearLayout(this);
         quickBtns.setOrientation(LinearLayout.HORIZONTAL);
-        
-        Button b1 = new Button(this); b1.setText("-1"); b1.setTextSize(12);
-        b1.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(Math.max(1, c-1))); updateLiveTotal.run(); });
-        quickBtns.addView(b1, new LinearLayout.LayoutParams(0, dp(38), 1f));
-
-        Button b2 = new Button(this); b2.setText("+1"); b2.setTextSize(12);
-        b2.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(c+1)); updateLiveTotal.run(); });
-        quickBtns.addView(b2, new LinearLayout.LayoutParams(0, dp(38), 1f));
-
-        Button b3 = new Button(this); b3.setText("+5"); b3.setTextSize(12);
-        b3.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(c+5)); updateLiveTotal.run(); });
-        quickBtns.addView(b3, new LinearLayout.LayoutParams(0, dp(38), 1f));
-
-        Button b4 = new Button(this); b4.setText("+10"); b4.setTextSize(12);
-        b4.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(c+10)); updateLiveTotal.run(); });
-        quickBtns.addView(b4, new LinearLayout.LayoutParams(0, dp(38), 1f));
-
-        Button b5 = new Button(this); b5.setText("+50"); b5.setTextSize(12);
-        b5.setOnClickListener(v -> { int c=1; try{c=Integer.parseInt(qtyInput.getText().toString());}catch(Exception e){} qtyInput.setText(String.valueOf(c+50)); updateLiveTotal.run(); });
-        quickBtns.addView(b5, new LinearLayout.LayoutParams(0, dp(38), 1f));
-
+        int[] steps = {-1, 1, 5, 10, 50};
+        for (int i = 0; i < steps.length; i++) {
+            final int step = steps[i];
+            Button b = new Button(this);
+            b.setText(step > 0 ? "+" + step : String.valueOf(step));
+            b.setTextSize(12);
+            b.setOnClickListener(v -> {
+                int cur = 1;
+                try { cur = Integer.parseInt(qtyInput.getText().toString().trim()); } catch (Exception ignored) {}
+                qtyInput.setText(String.valueOf(Math.max(1, cur + step)));
+                updateLiveTotal.run();
+            });
+            quickBtns.addView(b, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        }
         box.addView(quickBtns);
         box.addView(liveExitTotalTv, totalLp);
 
@@ -1024,7 +1033,10 @@ public class MainActivity extends AppCompatActivity {
         for (Product p : inventory) {
             if (!currentStock.equals(p.stockName)) continue;
             if (!selectedCategoryFilter.equals("ALL") && !selectedCategoryFilter.equals(p.category)) continue;
-            if (searchQuery.isEmpty() || p.name.toLowerCase().contains(searchQuery) || p.barcode.toLowerCase().contains(searchQuery) || (p.category != null && p.category.toLowerCase().contains(searchQuery))) {
+            if (searchQuery.isEmpty()
+                    || p.name.toLowerCase().contains(searchQuery)
+                    || p.barcode.toLowerCase().contains(searchQuery)
+                    || (p.category != null && p.category.toLowerCase().contains(searchQuery))) {
                 filteredInventory.add(p);
             }
         }
@@ -1093,7 +1105,8 @@ public class MainActivity extends AppCompatActivity {
                     if (b != null) canvas.drawBitmap(Bitmap.createScaledBitmap(b, 32, 32, true), 40, y - 8, null);
                 }
                 canvas.drawText(p.name.length() > 30 ? p.name.substring(0, 27) + "..." : p.name, 85, y + 10, paint);
-                canvas.drawText((p.category != null ? p.category : "").length() > 18 ? p.category.substring(0, 15) + "..." : p.category, 285, y + 10, paint);
+                String catStr = p.category != null ? p.category : "";
+                canvas.drawText(catStr.length() > 18 ? catStr.substring(0, 15) + "..." : catStr, 285, y + 10, paint);
                 if (usePrices) {
                     canvas.drawText(String.format(Locale.getDefault(), "%.2f €", p.price), 420, y + 10, paint);
                     totalStockValue += p.price * p.quantity;
@@ -1137,16 +1150,25 @@ public class MainActivity extends AppCompatActivity {
             JSONArray prodArr = new JSONArray();
             for (Product p : inventory) {
                 JSONObject o = new JSONObject();
-                o.put("barcode", p.barcode); o.put("name", p.name); o.put("quantity", p.quantity);
+                o.put("barcode", p.barcode);
+                o.put("name", p.name);
+                o.put("quantity", p.quantity);
                 o.put("imageBase64", p.imageBase64 != null ? p.imageBase64 : "");
                 o.put("stockName", p.stockName != null ? p.stockName : currentStock);
                 o.put("category", p.category != null ? p.category : tr("uncategorized"));
                 o.put("price", p.price);
                 prodArr.put(o);
             }
-            JSONArray stArr = new JSONArray(); for (String s : stocksList) stArr.put(s);
-            JSONArray catArr = new JSONArray(); for (String c : categoriesList) catArr.put(c);
-            prefs.edit().putString("inventory_json", prodArr.toString()).putString("stocks_json", stArr.toString()).putString("cats_json", catArr.toString()).putString("currentStock", currentStock).apply();
+            JSONArray stArr = new JSONArray();
+            for (String s : stocksList) stArr.put(s);
+            JSONArray catArr = new JSONArray();
+            for (String c : categoriesList) catArr.put(c);
+            prefs.edit()
+                    .putString("inventory_json", prodArr.toString())
+                    .putString("stocks_json", stArr.toString())
+                    .putString("cats_json", catArr.toString())
+                    .putString("currentStock", currentStock)
+                    .apply();
         } catch (Exception ignored) {}
     }
 
@@ -1223,7 +1245,7 @@ public class MainActivity extends AppCompatActivity {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     v.vibrate(VibrationEffect.createOneShot(70, VibrationEffect.DEFAULT_AMPLITUDE));
                 } else {
-                    v.vibrate(70);
+                    v.vibrate(70L);
                 }
             }
         } catch (Exception ignored) {}

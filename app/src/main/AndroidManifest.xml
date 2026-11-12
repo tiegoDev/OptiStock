@@ -11,8 +11,7 @@
         android:roundIcon="@drawable/splash_logo"
         android:label="OptiStock"
         android:supportsRtl="true"
-        android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
+        android:theme="@style/Theme.AppCompat.NoActionBar">
 
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
@@ -21,7 +20,8 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|uiMode">
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustPan">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
