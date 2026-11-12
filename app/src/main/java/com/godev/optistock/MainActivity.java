@@ -108,6 +108,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean isDarkMode = true;
     private boolean usePrices = false;
+    private boolean useScanner = true;
     private String langPref = "SYS";
     private String searchQuery = "";
     private String senderEmail = "";
@@ -137,6 +138,7 @@ public class MainActivity extends AppCompatActivity {
         prefs = getSharedPreferences("OptiStockPrefs", MODE_PRIVATE);
         isDarkMode = prefs.getBoolean("darkMode", true);
         usePrices = prefs.getBoolean("usePrices", false);
+        useScanner = prefs.getBoolean("useScanner", true);
         langPref = prefs.getString("langPref", "SYS");
         senderEmail = prefs.getString("senderEmail", "");
         senderAppPass = prefs.getString("senderAppPass", "");
@@ -266,18 +268,21 @@ public class MainActivity extends AppCompatActivity {
         dict.put("btn_in", new String[]{"+ ENTRÉE", "+ STOCK IN", "+ ENTRADA"});
         dict.put("btn_out", new String[]{"- SORTIE", "- STOCK OUT", "- SALIDA"});
         dict.put("search", new String[]{"🔍 Rechercher un produit ou code...", "🔍 Search product or barcode...", "🔍 Buscar producto o código..."});
-        dict.put("empty", new String[]{"Aucun produit dans ce stock.\nAppuyez sur + ENTRÉE en bas pour scanner.", "No products in this stock.\nTap + STOCK IN below to scan.", "Sin productos en este stock.\nToque + ENTRADA abajo para escanear."});
+        dict.put("empty", new String[]{"Aucun produit dans ce stock.\nAppuyez sur + ENTRÉE en bas pour commencer.", "No products in this stock.\nTap + STOCK IN below to start.", "Sin productos en este stock.\nToque + ENTRADA abajo para empezar."});
         dict.put("fetching", new String[]{"Recherche du produit sur Internet...", "Searching product online...", "Buscando producto en línea..."});
         dict.put("entry_title", new String[]{"Entrée de stock", "Stock Entry", "Entrada de stock"});
         dict.put("exit_title", new String[]{"Sortie de stock", "Stock Exit", "Salida de stock"});
         dict.put("prod_name", new String[]{"Nom du produit", "Product Name", "Nombre del producto"});
-        dict.put("qty_label", new String[]{"Quantité (Lot) :", "Quantity (Batch):", "Cantidad (Lote):"});
+        dict.put("code_opt_hint", new String[]{"Code ou Référence (optionnel, auto si vide)", "Barcode or Ref (optional, auto if empty)", "Código o Ref (opcional, auto si vacío)"});
+        dict.put("qty_label", new String[]{"Quantité :", "Quantity:", "Cantidad:"});
         dict.put("price_label", new String[]{"Prix unitaire (€ / $) :", "Unit Price (€ / $):", "Precio unitario (€ / $):"});
         dict.put("category_label", new String[]{"Catégorie :", "Category:", "Categoría:"});
         dict.put("current_stock", new String[]{"En stock : ", "In stock: ", "En stock: "});
         dict.put("save", new String[]{"VALIDER", "SAVE", "GUARDAR"});
+        dict.put("action_exit", new String[]{"🔴 SORTIE", "🔴 STOCK OUT", "🔴 SALIDA"});
+        dict.put("action_entry", new String[]{"🟢 + ENTRÉE", "🟢 + STOCK IN", "🟢 + ENTRADA"});
         dict.put("cancel", new String[]{"Annuler", "Cancel", "Cancelar"});
-        dict.put("delete", new String[]{"Supprimer", "Delete", "Eliminar"});
+        dict.put("delete", new String[]{"🗑️ Supprimer", "🗑️ Delete", "🗑️ Eliminar"});
         dict.put("manual_code", new String[]{"Saisie manuelle du code", "Manual Barcode", "Código manual"});
         dict.put("photo_btn", new String[]{"📷 Photo", "📷 Photo", "📷 Foto"});
         dict.put("pdf_btn", new String[]{"📄 PDF", "📄 PDF", "📄 PDF"});
@@ -296,7 +301,8 @@ public class MainActivity extends AppCompatActivity {
         dict.put("opt_lang", new String[]{"Langue de l'application :", "App Language:", "Idioma de la aplicación:"});
         dict.put("lang_sys", new String[]{"📱 Langue du téléphone", "📱 Phone Language", "📱 Idioma del teléfono"});
         dict.put("opt_dark", new String[]{"Mode Sombre (Cyber-Logistique)", "Dark Mode (Cyber-Logistics)", "Modo Oscuro (Ciber-Logística)"});
-        dict.put("opt_prices", new String[]{"Activer la gestion des prix & Ticket", "Enable prices & Receipt", "Activar precios y Ticket"});
+        dict.put("opt_scanner", new String[]{"📷 Activer le scanner de code-barres", "📷 Enable barcode scanner", "📷 Activar escáner de código de barras"});
+        dict.put("opt_prices", new String[]{"💶 Activer la gestion des prix & Ticket", "💶 Enable prices & Receipt", "💶 Activar precios y Ticket"});
         dict.put("exit_total_live", new String[]{"Prix total de cette sortie : ", "Total price for this exit: ", "Precio total de esta salida: "});
         dict.put("exit_banner", new String[]{"🧾 Ticket (%1$d art.) : %2$.2f €", "🧾 Receipt (%1$d it.) : %2$.2f", "🧾 Ticket (%1$d art.) : %2$.2f €"});
         dict.put("btn_receipt_view", new String[]{"📧 Ticket / Mail", "📧 Receipt / Mail", "📧 Ticket / Mail"});
@@ -306,10 +312,11 @@ public class MainActivity extends AppCompatActivity {
         dict.put("clear_receipt_btn", new String[]{"🗑️ Nouveau ticket (Vider)", "🗑️ New receipt (Clear)", "🗑️ Nuevo ticket (Vaciar)"});
         dict.put("opt_shop_name", new String[]{"Nom de la boutique / Entreprise :", "Shop / Company Name:", "Nombre de la tienda / Empresa:"});
         dict.put("opt_sender_email", new String[]{"Mon adresse e-mail liée (Expéditeur) :", "My linked email address (Sender):", "Mi correo vinculado (Remitente):"});
-        dict.put("opt_sender_pass", new String[]{"Clé / Mot de passe d'appli SMTP (Optionnel, pour envoi direct sans ouvrir l'appli mail) :", "SMTP App Password (Optional, for silent background sending):", "Contraseña de app SMTP (Opcional, para envío directo):"});
+        dict.put("opt_sender_pass", new String[]{"Clé / Mot de passe d'appli SMTP (Optionnel, pour envoi direct) :", "SMTP App Password (Optional, for silent sending):", "Contraseña de app SMTP (Opcional):"});
         dict.put("email_sent_ok", new String[]{"✅ Ticket envoyé automatiquement au client !", "✅ Receipt automatically sent to customer!", "✅ ¡Ticket enviado automáticamente al cliente!"});
         dict.put("email_invalid", new String[]{"Veuillez saisir une adresse e-mail client valide.", "Please enter a valid customer email.", "Ingrese un correo electrónico válido."});
         dict.put("saved_clients_label", new String[]{"👥 Registre clients (touchez pour sélectionner) :", "👥 Customer registry (tap to select):", "👥 Registro de clientes (toque para elegir):"});
+        dict.put("tap_product_for_exit", new String[]{"👆 Cliquez sur un produit de la liste pour choisir la quantité et valider la sortie.", "👆 Tap a product in the list to choose quantity and confirm stock out.", "👆 Toque un producto en la lista para elegir la cantidad y validar la salida."});
 
         String eff = langPref.equals("SYS") ? Locale.getDefault().getLanguage().toLowerCase() : langPref;
         int idx = eff.startsWith("en") ? 1 : (eff.startsWith("es") ? 2 : 0);
@@ -464,7 +471,6 @@ public class MainActivity extends AppCompatActivity {
         listView.setAdapter(adapter);
         rootLayout.addView(listView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // BANDEAU DU TICKET DE CAISSE EN COURS
         exitTotalBanner = new LinearLayout(this);
         exitTotalBanner.setOrientation(LinearLayout.HORIZONTAL);
         exitTotalBanner.setGravity(Gravity.CENTER_VERTICAL);
@@ -516,7 +522,7 @@ public class MainActivity extends AppCompatActivity {
         btnEntry.setTypeface(null, Typeface.BOLD);
         btnEntry.setTextColor(Color.WHITE);
         btnEntry.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(14), dp(2), Color.parseColor("#34D399")));
-        btnEntry.setOnClickListener(v -> startBarcodeScan(true));
+        btnEntry.setOnClickListener(v -> handleEntryAction());
         LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
         btnInParams.setMargins(0, 0, dp(6), 0);
         bottomBarLayout.addView(btnEntry, btnInParams);
@@ -526,13 +532,45 @@ public class MainActivity extends AppCompatActivity {
         btnExit.setTypeface(null, Typeface.BOLD);
         btnExit.setTextColor(Color.WHITE);
         btnExit.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(14), dp(2), Color.parseColor("#F87171")));
-        btnExit.setOnClickListener(v -> startBarcodeScan(false));
+        btnExit.setOnClickListener(v -> handleExitAction());
         LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
         btnOutParams.setMargins(dp(6), 0, 0, 0);
         bottomBarLayout.addView(btnExit, btnOutParams);
 
         rootLayout.addView(bottomBarLayout, actParams);
         setContentView(rootLayout);
+    }
+
+    private void handleEntryAction() {
+        if (useScanner) {
+            startBarcodeScan(true);
+        } else {
+            Product newProd = new Product();
+            newProd.barcode = "";
+            newProd.name = "";
+            newProd.quantity = 0;
+            newProd.imageBase64 = "";
+            newProd.stockName = currentStock;
+            if (!selectedCategoryFilter.equals("ALL") && categoriesList.contains(selectedCategoryFilter)) {
+                newProd.category = selectedCategoryFilter;
+            } else {
+                newProd.category = categoriesList.isEmpty() ? tr("uncategorized") : categoriesList.get(0);
+            }
+            newProd.price = 0.0;
+            showProductTransactionDialog(newProd, true, true, false);
+        }
+    }
+
+    private void handleExitAction() {
+        if (useScanner) {
+            startBarcodeScan(false);
+        } else {
+            if (filteredInventory.isEmpty()) {
+                Toast.makeText(this, tr("not_in_stock"), Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, tr("tap_product_for_exit"), Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private void applyThemeAndLang() {
@@ -664,7 +702,6 @@ public class MainActivity extends AppCompatActivity {
         box.setPadding(dp(18), dp(14), dp(18), dp(14));
         scroll.addView(box);
 
-        // Affichage visuel façon Ticket de caisse papier
         TextView ticketView = new TextView(this);
         ticketView.setText(buildReceiptText());
         ticketView.setTypeface(Typeface.MONOSPACE);
@@ -674,7 +711,6 @@ public class MainActivity extends AppCompatActivity {
         ticketView.setPadding(dp(14), dp(14), dp(14), dp(14));
         box.addView(ticketView);
 
-        // Info compte expéditeur lié
         TextView senderInfoTv = new TextView(this);
         String senderStatus = senderEmail.isEmpty()
                 ? "⚠️ Aucun e-mail expéditeur lié (configurable dans ⚙️ Options)"
@@ -685,7 +721,6 @@ public class MainActivity extends AppCompatActivity {
         senderInfoTv.setPadding(0, dp(10), 0, dp(6));
         box.addView(senderInfoTv);
 
-        // Barre de saisie / Recherche rapide dans le registre clients
         EditText emailInput = new EditText(this);
         emailInput.setHint(tr("client_search_hint"));
         emailInput.setInputType(InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
@@ -781,7 +816,6 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(MainActivity.this, tr("email_invalid"), Toast.LENGTH_SHORT).show();
                     return;
                 }
-                // Enregistrement automatique dans le registre clients
                 if (!clientEmails.contains(targetEmail)) {
                     clientEmails.add(0, targetEmail);
                     saveData();
@@ -1006,8 +1040,14 @@ public class MainActivity extends AppCompatActivity {
         Switch darkSwitch = new Switch(this);
         darkSwitch.setText(tr("opt_dark"));
         darkSwitch.setChecked(isDarkMode);
-        darkSwitch.setPadding(0, dp(14), 0, dp(10));
+        darkSwitch.setPadding(0, dp(14), 0, dp(8));
         box.addView(darkSwitch);
+
+        Switch scannerSwitch = new Switch(this);
+        scannerSwitch.setText(tr("opt_scanner"));
+        scannerSwitch.setChecked(useScanner);
+        scannerSwitch.setPadding(0, dp(6), 0, dp(8));
+        box.addView(scannerSwitch);
 
         Switch priceSwitch = new Switch(this);
         priceSwitch.setText(tr("opt_prices"));
@@ -1058,6 +1098,7 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton(tr("save"), (d, w) -> {
                     langPref = langCodes[langSpinner.getSelectedItemPosition()];
                     isDarkMode = darkSwitch.isChecked();
+                    useScanner = scannerSwitch.isChecked();
                     usePrices = priceSwitch.isChecked();
                     shopName = shopInput.getText().toString().trim();
                     if (shopName.isEmpty()) shopName = "OptiStock";
@@ -1066,6 +1107,7 @@ public class MainActivity extends AppCompatActivity {
                     prefs.edit()
                             .putString("langPref", langPref)
                             .putBoolean("darkMode", isDarkMode)
+                            .putBoolean("useScanner", useScanner)
                             .putBoolean("usePrices", usePrices)
                             .putString("shopName", shopName)
                             .putString("senderEmail", senderEmail)
@@ -1110,7 +1152,7 @@ public class MainActivity extends AppCompatActivity {
     private void handleScannedBarcode(String barcode, boolean isEntry) {
         Product existingInStock = findProductInCurrentStock(barcode);
         if (existingInStock != null) {
-            showProductTransactionDialog(existingInStock, isEntry, false);
+            showProductTransactionDialog(existingInStock, isEntry, false, false);
         } else {
             if (!isEntry) {
                 Toast.makeText(this, tr("not_in_stock"), Toast.LENGTH_LONG).show();
@@ -1126,7 +1168,7 @@ public class MainActivity extends AppCompatActivity {
                 copy.price = fromOtherStock.price;
                 copy.stockName = currentStock;
                 copy.quantity = 0;
-                showProductTransactionDialog(copy, true, true);
+                showProductTransactionDialog(copy, true, true, false);
             } else {
                 fetchProductOnline(barcode);
             }
@@ -1180,7 +1222,7 @@ public class MainActivity extends AppCompatActivity {
                 newProd.stockName = currentStock;
                 newProd.category = categoriesList.isEmpty() ? tr("uncategorized") : categoriesList.get(0);
                 newProd.price = 0.0;
-                showProductTransactionDialog(newProd, true, true);
+                showProductTransactionDialog(newProd, true, true, false);
             });
         });
     }
@@ -1210,13 +1252,15 @@ public class MainActivity extends AppCompatActivity {
         currentReceipt.add(newItem);
     }
 
-    private void showProductTransactionDialog(Product product, boolean isEntry, boolean isNew) {
+    private void showProductTransactionDialog(Product product, boolean isEntry, boolean isNew, boolean fromListClick) {
         tempPhotoBase64 = product.imageBase64 != null ? product.imageBase64 : "";
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(14), dp(20), dp(10));
         scroll.addView(box);
+
+        AlertDialog[] dialogHolder = new AlertDialog[1];
 
         LinearLayout photoRow = new LinearLayout(this);
         photoRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -1236,17 +1280,39 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout codeAndCam = new LinearLayout(this);
         codeAndCam.setOrientation(LinearLayout.VERTICAL);
         TextView codeTv = new TextView(this);
-        codeTv.setText("🏷️ " + product.barcode + "\n📦 " + product.stockName + " (" + tr("current_stock") + product.quantity + ")");
+        String dispCode = (product.barcode != null && !product.barcode.isEmpty()) ? product.barcode : "Auto";
+        codeTv.setText("🏷️ " + dispCode + "\n📦 " + product.stockName + " (" + tr("current_stock") + product.quantity + ")");
         codeTv.setTextSize(12);
         codeAndCam.addView(codeTv);
+
+        LinearLayout camAndDelRow = new LinearLayout(this);
+        camAndDelRow.setOrientation(LinearLayout.HORIZONTAL);
 
         Button btnCam = new Button(this);
         btnCam.setText(tr("photo_btn"));
         btnCam.setAllCaps(false);
+        btnCam.setTextSize(12);
         btnCam.setOnClickListener(v -> {
             try { startActivityForResult(new Intent(MediaStore.ACTION_IMAGE_CAPTURE), REQ_TAKE_PHOTO); } catch (Exception ignored) {}
         });
-        codeAndCam.addView(btnCam);
+        camAndDelRow.addView(btnCam);
+
+        if (!isNew) {
+            Button btnDel = new Button(this);
+            btnDel.setText(tr("delete"));
+            btnDel.setAllCaps(false);
+            btnDel.setTextSize(12);
+            btnDel.setTextColor(Color.parseColor("#EF4444"));
+            btnDel.setOnClickListener(v -> {
+                inventory.remove(product);
+                saveData();
+                filterList();
+                if (dialogHolder[0] != null) dialogHolder[0].dismiss();
+            });
+            camAndDelRow.addView(btnDel);
+        }
+
+        codeAndCam.addView(camAndDelRow);
         photoRow.addView(codeAndCam);
         box.addView(photoRow);
 
@@ -1254,6 +1320,14 @@ public class MainActivity extends AppCompatActivity {
         nameInput.setHint(tr("prod_name"));
         nameInput.setText(product.name);
         box.addView(nameInput);
+
+        EditText codeInput = new EditText(this);
+        codeInput.setHint(tr("code_opt_hint"));
+        codeInput.setText(product.barcode);
+        codeInput.setSingleLine(true);
+        if (isNew && (product.barcode == null || product.barcode.isEmpty())) {
+            box.addView(codeInput);
+        }
 
         TextView catTv = new TextView(this);
         catTv.setText(tr("category_label"));
@@ -1310,7 +1384,7 @@ public class MainActivity extends AppCompatActivity {
         box.addView(qtyInput);
 
         TextView liveExitTotalTv = new TextView(this);
-        liveExitTotalTv.setTextSize(16);
+        liveExitTotalTv.setTextSize(15);
         liveExitTotalTv.setTypeface(null, Typeface.BOLD);
         liveExitTotalTv.setTextColor(Color.WHITE);
         liveExitTotalTv.setGravity(Gravity.CENTER);
@@ -1320,7 +1394,7 @@ public class MainActivity extends AppCompatActivity {
         totalLp.setMargins(0, dp(10), 0, dp(4));
 
         Runnable updateLiveTotal = () -> {
-            if (!usePrices || isEntry) {
+            if (!usePrices || (isEntry && !fromListClick)) {
                 liveExitTotalTv.setVisibility(View.GONE);
                 return;
             }
@@ -1362,57 +1436,106 @@ public class MainActivity extends AppCompatActivity {
         });
         updateLiveTotal.run();
 
+        // Fonction commune de validation (Entrée ou Sortie)
+        final boolean[] actionMode = {isEntry};
+        Runnable commitTransaction = () -> {
+            boolean doEntry = actionMode[0];
+            String enteredCode = product.barcode != null ? product.barcode.trim() : "";
+            if (isNew && enteredCode.isEmpty()) {
+                enteredCode = codeInput.getText().toString().trim();
+            }
+            String enteredName = nameInput.getText().toString().trim();
+
+            if (enteredCode.isEmpty()) {
+                // Si un produit du même nom existe déjà dans ce stock, on l'utilise
+                Product sameNameProd = findProductByNameInCurrentStock(enteredName);
+                if (sameNameProd != null && isNew) {
+                    enteredCode = sameNameProd.barcode;
+                } else {
+                    enteredCode = "REF-" + (System.currentTimeMillis() % 100000);
+                }
+            }
+            if (enteredName.isEmpty()) enteredName = tr("unknown_prod") + " (" + enteredCode + ")";
+
+            String chosenCat;
+            if (catSpinner.getSelectedItemPosition() == spinnerCats.size() - 1) {
+                chosenCat = newCatInput.getText().toString().trim();
+                if (chosenCat.isEmpty()) chosenCat = tr("uncategorized");
+                if (!categoriesList.contains(chosenCat)) categoriesList.add(chosenCat);
+            } else {
+                chosenCat = spinnerCats.get(catSpinner.getSelectedItemPosition());
+            }
+
+            int delta = 1;
+            try { delta = Integer.parseInt(qtyInput.getText().toString().trim()); } catch (Exception ignored) {}
+
+            double parsedPrice = product.price;
+            if (usePrices) {
+                try { parsedPrice = Double.parseDouble(priceInput.getText().toString().trim().replace(",", ".")); } catch (Exception ignored) {}
+            }
+
+            Product targetProduct = product;
+            if (isNew) {
+                Product existing = findProductInCurrentStock(enteredCode);
+                if (existing != null) {
+                    targetProduct = existing;
+                } else {
+                    targetProduct.barcode = enteredCode;
+                    inventory.add(0, targetProduct);
+                }
+            }
+
+            targetProduct.name = enteredName;
+            if (!tempPhotoBase64.isEmpty()) targetProduct.imageBase64 = tempPhotoBase64;
+            targetProduct.category = chosenCat;
+            targetProduct.stockName = currentStock;
+            if (usePrices) targetProduct.price = parsedPrice;
+
+            if (doEntry) {
+                targetProduct.quantity += Math.max(0, delta);
+            } else {
+                int actualRemoved = Math.min(targetProduct.quantity, Math.max(0, delta));
+                targetProduct.quantity = Math.max(0, targetProduct.quantity - delta);
+                if (usePrices && actualRemoved > 0) {
+                    lastExitTotal = actualRemoved * targetProduct.price;
+                    addOrUpdateReceiptItem(targetProduct.barcode, targetProduct.name, actualRemoved, targetProduct.price);
+                }
+            }
+            saveData();
+            applyThemeAndLang();
+        };
+
+        String dialogTitle;
+        if (fromListClick) {
+            dialogTitle = "📦 " + (product.name != null && !product.name.isEmpty() ? product.name : tr("exit_title"));
+        } else {
+            dialogTitle = isEntry ? "🟢 " + tr("entry_title") : "🔴 " + tr("exit_title");
+        }
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle(isEntry ? "🟢 " + tr("entry_title") : "🔴 " + tr("exit_title"))
+                .setTitle(dialogTitle)
                 .setView(scroll)
-                .setPositiveButton(tr("save"), (d, w) -> {
-                    String enteredName = nameInput.getText().toString().trim();
-                    if (enteredName.isEmpty()) enteredName = tr("unknown_prod") + " (" + product.barcode + ")";
-
-                    String chosenCat;
-                    if (catSpinner.getSelectedItemPosition() == spinnerCats.size() - 1) {
-                        chosenCat = newCatInput.getText().toString().trim();
-                        if (chosenCat.isEmpty()) chosenCat = tr("uncategorized");
-                        if (!categoriesList.contains(chosenCat)) categoriesList.add(chosenCat);
-                    } else {
-                        chosenCat = spinnerCats.get(catSpinner.getSelectedItemPosition());
-                    }
-
-                    int delta = 1;
-                    try { delta = Integer.parseInt(qtyInput.getText().toString().trim()); } catch (Exception ignored) {}
-                    if (usePrices) {
-                        try { product.price = Double.parseDouble(priceInput.getText().toString().trim().replace(",", ".")); } catch (Exception ignored) {}
-                    }
-
-                    product.name = enteredName;
-                    product.imageBase64 = tempPhotoBase64;
-                    product.category = chosenCat;
-                    product.stockName = currentStock;
-
-                    if (isEntry) {
-                        product.quantity += Math.max(0, delta);
-                        if (isNew && findProductInCurrentStock(product.barcode) == null) inventory.add(0, product);
-                    } else {
-                        int actualRemoved = Math.min(product.quantity, Math.max(0, delta));
-                        product.quantity = Math.max(0, product.quantity - delta);
-                        if (usePrices && actualRemoved > 0) {
-                            lastExitTotal = actualRemoved * product.price;
-                            addOrUpdateReceiptItem(product.barcode, product.name, actualRemoved, product.price);
-                        }
-                    }
-                    saveData();
-                    applyThemeAndLang();
-                })
                 .setNegativeButton(tr("cancel"), null);
 
-        if (!isNew) {
-            builder.setNeutralButton(tr("delete"), (d, w) -> {
-                inventory.remove(product);
-                saveData();
-                filterList();
+        if (fromListClick) {
+            // Clic sur un produit de la liste : bouton principal "🔴 SORTIE" + bouton "🟢 + ENTRÉE"
+            builder.setPositiveButton(tr("action_exit"), (d, w) -> {
+                actionMode[0] = false;
+                commitTransaction.run();
+            });
+            builder.setNeutralButton(tr("action_entry"), (d, w) -> {
+                actionMode[0] = true;
+                commitTransaction.run();
+            });
+        } else {
+            builder.setPositiveButton(isEntry ? tr("save") : tr("action_exit"), (d, w) -> {
+                actionMode[0] = isEntry;
+                commitTransaction.run();
             });
         }
-        builder.show();
+
+        dialogHolder[0] = builder.create();
+        dialogHolder[0].show();
     }
 
     private class InventoryAdapter extends BaseAdapter {
@@ -1478,7 +1601,8 @@ public class MainActivity extends AppCompatActivity {
             badge.setPadding(dp(14), dp(8), dp(14), dp(8));
             card.addView(badge);
 
-            card.setOnClickListener(v -> showProductTransactionDialog(p, true, false));
+            // Clic sur le produit : ouvre la boîte de dialogue permettant de choisir la quantité et de cliquer sur SORTIE
+            card.setOnClickListener(v -> showProductTransactionDialog(p, false, false, true));
             return card;
         }
     }
@@ -1500,12 +1624,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Product findProductInCurrentStock(String barcode) {
-        for (Product p : inventory) if (p.barcode.equals(barcode) && currentStock.equals(p.stockName)) return p;
+        for (Product p : inventory) if (p.barcode.equalsIgnoreCase(barcode) && currentStock.equals(p.stockName)) return p;
+        return null;
+    }
+
+    private Product findProductByNameInCurrentStock(String name) {
+        if (name == null || name.trim().isEmpty()) return null;
+        for (Product p : inventory) {
+            if (currentStock.equals(p.stockName) && p.name != null && p.name.equalsIgnoreCase(name.trim())) {
+                return p;
+            }
+        }
         return null;
     }
 
     private Product findProductAnywhere(String barcode) {
-        for (Product p : inventory) if (p.barcode.equals(barcode)) return p;
+        for (Product p : inventory) if (p.barcode.equalsIgnoreCase(barcode)) return p;
         return null;
     }
 
