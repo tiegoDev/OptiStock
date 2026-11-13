@@ -2,24 +2,6 @@ plugins {
     id 'com.android.application'
 }
 
-def keystoreFile = file("optistock.keystore")
-if (!keystoreFile.exists()) {
-    def javaHome = System.getProperty("java.home")
-    def keytoolBin = new File(javaHome, "bin/keytool").exists() ? new File(javaHome, "bin/keytool").absolutePath : "keytool"
-    def proc = [
-        keytoolBin, "-genkeypair", "-v",
-        "-keystore", keystoreFile.absolutePath,
-        "-alias", "optistock_key",
-        "-keyalg", "RSA",
-        "-keysize", "2048",
-        "-validity", "10000",
-        "-storepass", "optistock123",
-        "-keypass", "optistock123",
-        "-dname", "CN=GoDev, OU=GoDev Labs, O=GoDev, L=Vannes, S=Morbihan, C=FR"
-    ].execute()
-    proc.waitFor()
-}
-
 android {
     namespace 'com.godev.optistock'
     compileSdk 34
@@ -28,8 +10,8 @@ android {
         applicationId "com.godev.optistock"
         minSdk 24
         targetSdk 34
-        versionCode 12
-        versionName "1.12"
+        versionCode 13
+        versionName "1.13"
     }
 
     signingConfigs {
