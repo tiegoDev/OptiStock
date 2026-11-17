@@ -14,9 +14,11 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.pdf.PdfDocument;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -34,6 +36,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.view.animation.LinearInterpolator;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -188,6 +191,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_PICK_CUSTOM_LOGO = 1007;
     private static final int REQ_EXPORT_EXITS_PDF = 1008;
     private static final int REQ_EXPORT_RECEIPTS_PERIOD_PDF = 1009;
+    private static final int REQ_IMPORT_CATALOG_CSV = 1010;
+    private static final int REQ_EXPORT_SAMPLE_CSV = 1011;
 
     private ImageView currentPhotoPreview, optionsLogoPreview;
     private String tempPhotoPath = "";
@@ -198,8 +203,8 @@ public class MainActivity extends AppCompatActivity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private LinearLayout rootLayout, headerLayout, actionRowLayout, subHeaderLayout, statsRefsCard, statsUnitsCard, statsLowCard, emptyContainer, exitTotalBanner, bottomBarLayout;
-    private TextView titleText, trialBannerText, statsRefsValue, statsRefsLabel, statsUnitsValue, statsUnitsLabel, statsLowValue, statsLowLabel, emptyText, exitTotalText;
+    private LinearLayout rootLayout, headerCard, actionRowLayout, subHeaderLayout, statsRefsCard, statsUnitsCard, statsLowCard, emptyContainer, exitTotalBanner, bottomBarLayout;
+    private TextView titleText, subtitleText, trialBannerText, statsRefsValue, statsRefsLabel, statsUnitsValue, statsUnitsLabel, statsLowValue, statsLowLabel, emptyText, exitTotalText;
     private ImageView headerLogo, emptyLogo;
     private EditText searchInput;
     private Button btnTestSim, btnEntry, btnExit, btnHistory, btnExport, btnOptions, btnStockSelector, btnCatFilter, btnOpenReceipt;
@@ -221,10 +226,21 @@ public class MainActivity extends AppCompatActivity {
         shopName = prefs.getString("shopName", "");
         customLogoPath = prefs.getString("customLogoPath", "");
 
+        styleSystemBars();
         initTrialTimestamp();
         initBilling();
         loadData();
         showSplashScreen();
+    }
+
+    private void styleSystemBars() {
+        try {
+            Window window = getWindow();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                window.setStatusBarColor(Color.parseColor("#020617"));
+                window.setNavigationBarColor(Color.parseColor("#020617"));
+            }
+        } catch (Exception ignored) {}
     }
 
     private void initTrialTimestamp() {
@@ -357,9 +373,153 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ==================== COMPOSANTS UI STUDIO ====================
+
+    private GradientDrawable createGradientBg(int colorStart, int colorEnd, int radiusPx, int strokeWidthPx, int strokeColor) {
+        GradientDrawable gd = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{colorStart, colorEnd}
+        );
+        gd.setCornerRadius(radiusPx);
+        if (strokeWidthPx > 0) gd.setStroke(strokeWidthPx, strokeColor);
+        return gd;
+    }
+
+    private GradientDrawable createRoundedBg(int color, int radiusPx) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(color);
+        gd.setCornerRadius(radiusPx);
+        return gd;
+    }
+
+    private GradientDrawable createRoundedBg(int color, int radiusPx, int strokeWidthPx, int strokeColor) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(color);
+        gd.setCornerRadius(radiusPx);
+        gd.setStroke(strokeWidthPx, strokeColor);
+        return gd;
+    }
+
+    private void elevate(View v, int dpVal) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            v.setElevation(dp(dpVal));
+        }
+    }
+
+    private EditText createStyledInput(String hint, String initialText) {
+        EditText ed = new EditText(this);
+        ed.setHint(hint);
+        ed.setText(initialText != null ? initialText : "");
+        ed.setTextColor(Color.parseColor("#F8FAFC"));
+        ed.setHintTextColor(Color.parseColor("#64748B"));
+        ed.setTextSize(14);
+        ed.setPadding(dp(14), dp(11), dp(14), dp(11));
+        ed.setBackground(createRoundedBg(Color.parseColor("#091326"), dp(12), dp(1), Color.parseColor("#1E3A8A")));
+        return ed;
+    }
+
+    private TextView createSectionLabel(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(Color.parseColor("#38BDF8"));
+        tv.setTextSize(12);
+        tv.setTypeface(null, Typeface.BOLD);
+        tv.setPadding(0, dp(12), 0, dp(6));
+        return tv;
+    }
+
+    private Button createStudioButton(String text, int c1, int c2, int strokeColor) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(13);
+        b.setTypeface(null, Typeface.BOLD);
+        b.setPadding(dp(14), dp(8), dp(14), dp(8));
+        b.setBackground(createGradientBg(c1, c2, dp(12), dp(1), strokeColor));
+        elevate(b, 4);
+        return b;
+    }
+
+    // Fenêtre modale Studio sur-mesure (remplace les boîtes grises classiques Android)
+    private AlertDialog createStudioDialog(String titleStr, View contentView, String posText, Runnable onPos, String neuText, Runnable onNeu, String negText) {
+        AlertDialog dialog = new AlertDialog.Builder(this).create();
+
+        LinearLayout outer = new LinearLayout(this);
+        outer.setOrientation(LinearLayout.VERTICAL);
+        outer.setPadding(dp(20), dp(18), dp(20), dp(16));
+        outer.setBackground(createGradientBg(Color.parseColor("#0F172A"), Color.parseColor("#040B1C"), dp(22), dp(2), Color.parseColor("#0EA5E9")));
+
+        TextView titleTv = new TextView(this);
+        titleTv.setText(titleStr);
+        titleTv.setTextColor(Color.WHITE);
+        titleTv.setTextSize(18);
+        titleTv.setTypeface(null, Typeface.BOLD);
+        titleTv.setPadding(0, 0, 0, dp(10));
+        outer.addView(titleTv);
+
+        View accentLine = new View(this);
+        accentLine.setBackground(createGradientBg(Color.parseColor("#38BDF8"), Color.parseColor("#0F172A"), dp(2), 0, 0));
+        LinearLayout.LayoutParams lineLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2));
+        lineLp.setMargins(0, 0, 0, dp(12));
+        outer.addView(accentLine, lineLp);
+
+        LinearLayout.LayoutParams contentLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        outer.addView(contentView, contentLp);
+
+        LinearLayout btnBar = new LinearLayout(this);
+        btnBar.setOrientation(LinearLayout.HORIZONTAL);
+        btnBar.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        barLp.setMargins(0, dp(14), 0, 0);
+
+        if (neuText != null) {
+            Button btnNeu = createStudioButton(neuText, Color.parseColor("#1E293B"), Color.parseColor("#0F172A"), Color.parseColor("#38BDF8"));
+            btnNeu.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (onNeu != null) onNeu.run();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42));
+            lp.setMargins(0, 0, dp(8), 0);
+            btnBar.addView(btnNeu, lp);
+        }
+
+        if (negText != null) {
+            Button btnNeg = createStudioButton(negText, Color.parseColor("#1E293B"), Color.parseColor("#0F172A"), Color.parseColor("#475569"));
+            btnNeg.setTextColor(Color.parseColor("#CBD5E1"));
+            btnNeg.setOnClickListener(v -> dialog.dismiss());
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42));
+            lp.setMargins(0, 0, dp(8), 0);
+            btnBar.addView(btnNeg, lp);
+        }
+
+        if (posText != null) {
+            boolean isDanger = posText.contains("🔴");
+            int c1 = isDanger ? Color.parseColor("#EF4444") : Color.parseColor("#10B981");
+            int c2 = isDanger ? Color.parseColor("#B91C1C") : Color.parseColor("#047857");
+            int st = isDanger ? Color.parseColor("#FCA5A5") : Color.parseColor("#6EE7B7");
+            Button btnPos = createStudioButton(posText, c1, c2, st);
+            btnPos.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (onPos != null) onPos.run();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42));
+            btnBar.addView(btnPos, lp);
+        }
+
+        outer.addView(btnBar, barLp);
+        dialog.setView(outer);
+        dialog.setOnShowListener(d -> {
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            }
+        });
+        return dialog;
+    }
+
     private void showPaywallUI() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Color.parseColor("#040B1C"));
+        scroll.setBackground(createGradientBg(Color.parseColor("#020617"), Color.parseColor("#0B1736"), 0, 0, 0));
         scroll.setFillViewport(true);
 
         LinearLayout container = new LinearLayout(this);
@@ -395,21 +555,22 @@ public class MainActivity extends AppCompatActivity {
         offerCard.setOrientation(LinearLayout.VERTICAL);
         offerCard.setGravity(Gravity.CENTER);
         offerCard.setPadding(dp(20), dp(20), dp(20), dp(20));
-        offerCard.setBackground(createRoundedBg(Color.parseColor("#0F172A"), dp(16), dp(2), Color.parseColor("#38BDF8")));
+        offerCard.setBackground(createGradientBg(Color.parseColor("#112240"), Color.parseColor("#091326"), dp(20), dp(2), Color.parseColor("#38BDF8")));
+        elevate(offerCard, 8);
 
         TextView badge = new TextView(this);
         badge.setText(tr("launch_offer_badge"));
-        badge.setTextColor(Color.parseColor("#040B1C"));
+        badge.setTextColor(Color.parseColor("#020617"));
         badge.setTextSize(12);
         badge.setTypeface(null, Typeface.BOLD);
-        badge.setPadding(dp(12), dp(4), dp(12), dp(4));
-        badge.setBackground(createRoundedBg(Color.parseColor("#38BDF8"), dp(8)));
+        badge.setPadding(dp(14), dp(5), dp(14), dp(5));
+        badge.setBackground(createGradientBg(Color.parseColor("#38BDF8"), Color.parseColor("#0EA5E9"), dp(10), 0, 0));
         offerCard.addView(badge);
 
         TextView priceTv = new TextView(this);
         priceTv.setText(formattedLaunchPrice);
         priceTv.setTextColor(Color.WHITE);
-        priceTv.setTextSize(36);
+        priceTv.setTextSize(38);
         priceTv.setTypeface(null, Typeface.BOLD);
         priceTv.setPadding(0, dp(12), 0, dp(4));
         offerCard.addView(priceTv);
@@ -431,22 +592,20 @@ public class MainActivity extends AppCompatActivity {
 
         container.addView(offerCard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        Button btnUnlock = new Button(this);
-        btnUnlock.setText(String.format(Locale.getDefault(), tr("unlock_btn_fmt"), formattedLaunchPrice));
+        Button btnUnlock = createStudioButton(
+                String.format(Locale.getDefault(), tr("unlock_btn_fmt"), formattedLaunchPrice),
+                Color.parseColor("#10B981"), Color.parseColor("#047857"), Color.parseColor("#6EE7B7")
+        );
         btnUnlock.setTextSize(16);
-        btnUnlock.setTypeface(null, Typeface.BOLD);
-        btnUnlock.setTextColor(Color.WHITE);
-        btnUnlock.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(14), dp(2), Color.parseColor("#34D399")));
         btnUnlock.setOnClickListener(v -> openPlayStoreOrBilling());
         LinearLayout.LayoutParams unlockLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
         unlockLp.setMargins(0, dp(22), 0, dp(10));
         container.addView(btnUnlock, unlockLp);
 
-        Button btnSimPaywall = new Button(this);
-        btnSimPaywall.setText("🧪 TEST : Simuler l'achat Pro");
-        btnSimPaywall.setAllCaps(false);
-        btnSimPaywall.setTextColor(Color.WHITE);
-        btnSimPaywall.setBackground(createRoundedBg(Color.parseColor("#7C3AED"), dp(12), dp(1), Color.parseColor("#A78BFA")));
+        Button btnSimPaywall = createStudioButton(
+                "🧪 TEST : Simuler l'achat Pro",
+                Color.parseColor("#7C3AED"), Color.parseColor("#5B21B6"), Color.parseColor("#C4B5FD")
+        );
         btnSimPaywall.setOnClickListener(v -> {
             prefs.edit().putBoolean("devBypassPro", true).apply();
             buildMainUI();
@@ -477,15 +636,15 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout splashRoot = new LinearLayout(this);
         splashRoot.setOrientation(LinearLayout.VERTICAL);
         splashRoot.setGravity(Gravity.CENTER_HORIZONTAL);
-        splashRoot.setBackgroundColor(Color.parseColor("#040B1C"));
+        splashRoot.setBackground(createGradientBg(Color.parseColor("#020617"), Color.parseColor("#0A192F"), 0, 0, 0));
         splashRoot.setPadding(dp(20), dp(32), dp(20), dp(24));
-        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.3f));
+        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.28f));
 
         ImageView logoView = new ImageView(this);
         logoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
         loadAppLogoInto(logoView);
 
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(300), dp(300));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(290), dp(290));
         logoLp.gravity = Gravity.CENTER;
         splashRoot.addView(logoView, logoLp);
 
@@ -494,12 +653,12 @@ public class MainActivity extends AppCompatActivity {
         laserLp.setMargins(dp(16), dp(24), dp(16), dp(16));
         splashRoot.addView(laserView, laserLp);
 
-        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.7f));
+        splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.72f));
 
         TextView footerTv = new TextView(this);
-        footerTv.setText("Développé par GoDev");
+        footerTv.setText("Développé par GoDev  •  v1.14 Studio");
         footerTv.setTextColor(Color.parseColor("#38BDF8"));
-        footerTv.setTextSize(15);
+        footerTv.setTextSize(14);
         footerTv.setTypeface(null, Typeface.BOLD);
         footerTv.setGravity(Gravity.CENTER);
         splashRoot.addView(footerTv);
@@ -507,7 +666,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(splashRoot);
 
         ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
-        anim.setDuration(3500);
+        anim.setDuration(3200);
         anim.setInterpolator(new LinearInterpolator());
         anim.addUpdateListener(animation -> laserView.setProgress((float) animation.getAnimatedValue()));
         anim.start();
@@ -519,7 +678,7 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 showPaywallUI();
             }
-        }, 3650);
+        }, 3350);
     }
 
     private class BarcodeLaserView extends View {
@@ -577,20 +736,21 @@ public class MainActivity extends AppCompatActivity {
             canvas.drawLine(laserX, padY - dp(6), laserX, barBottom + dp(8), laserPaint);
             canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(4), glowPaint);
             canvas.drawCircle(laserX, (padY + barBottom) / 2f, dp(2), whiteDot);
-            canvas.drawText("SCANNING... " + (int)(progress * 100) + "%", w / 2f, h - dp(4), textPaint);
+            canvas.drawText("INITIALISATION OPTISTOCK... " + (int)(progress * 100) + "%", w / 2f, h - dp(4), textPaint);
         }
     }
 
     private String tr(String key) {
         Map<String, String[]> dict = new HashMap<>();
         dict.put("app_title", new String[]{"OptiStock", "OptiStock", "OptiStock"});
+        dict.put("app_sub", new String[]{"PRO INVENTORY SUITE", "PRO INVENTORY SUITE", "PRO INVENTORY SUITE"});
         dict.put("refs", new String[]{"RÉFÉRENCES", "ITEMS", "REFERENCIAS"});
         dict.put("units", new String[]{"TOTAL UNITÉS", "TOTAL UNITS", "UNIDADES TOTALES"});
         dict.put("low_stock", new String[]{"⚠️ STOCK BAS", "⚠️ LOW STOCK", "⚠️ STOCK BAJO"});
         dict.put("btn_in", new String[]{"+ ENTRÉE", "+ STOCK IN", "+ ENTRADA"});
         dict.put("btn_out", new String[]{"- SORTIE", "- STOCK OUT", "- SALIDA"});
-        dict.put("search", new String[]{"🔍 Rechercher un produit ou code...", "🔍 Search product or barcode...", "🔍 Buscar producto o código..."});
-        dict.put("empty", new String[]{"Aucun produit affiché.\nAppuyez sur + ENTRÉE en bas pour ajouter un article.", "No products shown.\nTap + STOCK IN below to add an item.", "Sin productos mostrados.\nToque + ENTRADA abajo para añadir."});
+        dict.put("search", new String[]{"🔍 Rechercher un produit, code ou catégorie...", "🔍 Search product, barcode or category...", "🔍 Buscar producto, código o categoría..."});
+        dict.put("empty", new String[]{"Aucun produit dans cette vue.\nAppuyez sur + ENTRÉE en bas ou importez un fichier CSV dans Options.", "No products in this view.\nTap + STOCK IN below or import a CSV in Settings.", "Sin productos en esta vista.\nToque + ENTRADA abajo o importe un CSV en Opciones."});
         dict.put("fetching", new String[]{"Recherche du produit sur Internet...", "Searching product online...", "Buscando producto en línea..."});
         dict.put("entry_title", new String[]{"Entrée de stock", "Stock Entry", "Entrada de stock"});
         dict.put("exit_title", new String[]{"Sortie de stock", "Stock Exit", "Salida de stock"});
@@ -603,7 +763,7 @@ public class MainActivity extends AppCompatActivity {
         dict.put("save", new String[]{"VALIDER", "SAVE", "GUARDAR"});
         dict.put("action_exit", new String[]{"🔴 SORTIE", "🔴 STOCK OUT", "🔴 SALIDA"});
         dict.put("action_entry", new String[]{"🟢 + ENTRÉE", "🟢 + STOCK IN", "🟢 + ENTRADA"});
-        dict.put("cancel", new String[]{"Annuler", "Cancel", "Cancelar"});
+        dict.put("cancel", new String[]{"Fermer", "Close", "Cerrar"});
         dict.put("delete", new String[]{"🗑️ Supprimer", "🗑️ Delete", "🗑️ Eliminar"});
         dict.put("manual_code", new String[]{"Saisie manuelle du code", "Manual Barcode", "Código manual"});
         dict.put("photo_btn", new String[]{"📷 Photo", "📷 Photo", "📷 Foto"});
@@ -623,7 +783,7 @@ public class MainActivity extends AppCompatActivity {
         dict.put("options_title", new String[]{"⚙️ Options", "⚙️ Settings", "⚙️ Opciones"});
         dict.put("opt_lang", new String[]{"Langue de l'application :", "App Language:", "Idioma de la aplicación:"});
         dict.put("lang_sys", new String[]{"📱 Langue du téléphone", "📱 Phone Language", "📱 Idioma del teléfono"});
-        dict.put("opt_dark", new String[]{"Mode Sombre (Cyber-Logistique)", "Dark Mode (Cyber-Logistics)", "Modo Oscuro (Ciber-Logística)"});
+        dict.put("opt_dark", new String[]{"Thème Studio Cyber-Dark", "Cyber-Dark Studio Theme", "Tema Estudio Ciber-Oscuro"});
         dict.put("opt_scanner", new String[]{"📷 Activer le scanner de code-barres", "📷 Enable barcode scanner", "📷 Activar escáner de código de barras"});
         dict.put("opt_prices", new String[]{"💶 Activer la gestion des prix & Ticket", "💶 Enable prices & Receipt", "💶 Activar precios y Ticket"});
         dict.put("opt_low_thresh", new String[]{"Seuil d'alerte stock bas (unités) :", "Low stock alert threshold (units):", "Umbral de alerta stock bajo (unidades):"});
@@ -643,11 +803,15 @@ public class MainActivity extends AppCompatActivity {
         dict.put("opt_smtp_port", new String[]{"Port SMTP :", "SMTP Port:", "Puerto SMTP:"});
         dict.put("opt_sender_email", new String[]{"Mon adresse e-mail liée (Expéditeur) :", "My linked email address (Sender):", "Mi correo vinculado (Remitente):"});
         dict.put("opt_sender_pass", new String[]{"Mot de passe d'application SMTP :", "SMTP App Password:", "Contraseña de aplicación SMTP:"});
+        dict.put("smtp_help_note", new String[]{"💡 Mode simple activé par défaut : laissez le mot de passe vide pour envoyer vos tickets en 1 clic via votre application Mail habituelle (Gmail, Outlook...). Remplissez uniquement pour un envoi silencieux en arrière-plan.", "💡 Simple mode active by default: leave password empty to send receipts via your usual Mail app.", "💡 Modo simple activo por defecto: deje la contraseña vacía para enviar tickets con su app de correo habitual."});
         dict.put("email_sent_ok", new String[]{"✅ Ticket envoyé automatiquement au client !", "✅ Receipt automatically sent to customer!", "✅ ¡Ticket enviado automáticamente al cliente!"});
         dict.put("email_invalid", new String[]{"Veuillez saisir une adresse e-mail client valide.", "Please enter a valid customer email.", "Ingrese un correo electrónico válido."});
         dict.put("saved_clients_label", new String[]{"👥 Registre clients (touchez pour sélectionner) :", "👥 Customer registry (tap to select):", "👥 Registro de clientes (toque para elegir):"});
         dict.put("tap_product_for_exit", new String[]{"👆 Cliquez sur un produit de la liste pour choisir la quantité et valider la sortie.", "👆 Tap a product in the list to choose quantity and confirm stock out.", "👆 Toque un producto en la lista para elegir la cantidad y validar la salida."});
-        dict.put("backup_section", new String[]{"💾 Sauvegarde & Restauration des données :", "💾 Data Backup & Restore:", "💾 Copia de seguridad y Restauración:"});
+        dict.put("csv_import_section", new String[]{"📊 Import rapide de catalogue (CSV / Excel) :", "📊 Fast Catalog Import (CSV / Excel):", "📊 Importación rápida de catálogo (CSV / Excel):"});
+        dict.put("csv_import_btn", new String[]{"📥 Importer un fichier CSV (Catalogue)", "📥 Import CSV File (Catalog)", "📥 Importar archivo CSV (Catálogo)"});
+        dict.put("csv_sample_btn", new String[]{"📄 Télécharger un modèle CSV vierge", "📄 Download blank CSV template", "📄 Descargar plantilla CSV vacía"});
+        dict.put("backup_section", new String[]{"💾 Sauvegarde & Restauration complète :", "💾 Full Data Backup & Restore:", "💾 Copia de seguridad y Restauración:"});
         dict.put("backup_export_btn", new String[]{"📤 Exporter sauvegarde (.json)", "📤 Export backup (.json)", "📤 Exportar copia (.json)"});
         dict.put("backup_import_btn", new String[]{"📥 Restaurer sauvegarde (.json)", "📥 Restore backup (.json)", "📥 Restaurar copia (.json)"});
         dict.put("backup_ok", new String[]{"✅ Sauvegarde exportée avec succès !", "✅ Backup exported successfully!", "✅ ¡Copia exportada con éxito!"});
@@ -656,14 +820,14 @@ public class MainActivity extends AppCompatActivity {
         dict.put("history_empty", new String[]{"Aucun mouvement enregistré pour le moment.", "No movements recorded yet.", "Sin movimientos registrados aún."});
         dict.put("history_csv_btn", new String[]{"📊 Exporter CSV", "📊 Export CSV", "📊 Exportar CSV"});
         dict.put("history_clear_btn", new String[]{"🗑️ Effacer", "🗑️ Clear", "🗑️ Borrar"});
-        dict.put("csv_ok", new String[]{"✅ Historique CSV exporté !", "✅ History CSV exported!", "✅ ¡Historial CSV exportado!"});
-        dict.put("trial_banner_fmt", new String[]{"🎁 Essai gratuit (%1$d j) - Cliquez ici pour la version Pro", "🎁 Free trial (%1$d d) - Click here for Pro version", "🎁 Prueba gratis (%1$d d) - Clic aquí para versión Pro"});
+        dict.put("csv_ok", new String[]{"✅ Fichier CSV enregistré avec succès !", "✅ CSV file saved successfully!", "✅ ¡Archivo CSV guardado con éxito!"});
+        dict.put("trial_banner_fmt", new String[]{"🎁 Essai gratuit (%1$d j)  •  Cliquez ici pour la version Pro", "🎁 Free trial (%1$d d)  •  Click here for Pro version", "🎁 Prueba gratis (%1$d d)  •  Clic aquí para versión Pro"});
         dict.put("pro_version_badge", new String[]{"⭐ Version Pro", "⭐ Pro Version", "⭐ Versión Pro"});
         dict.put("trial_expired_title", new String[]{"Essai gratuit de 7 jours terminé", "7-Day Free Trial Ended", "Prueba gratuita de 7 días finalizada"});
         dict.put("trial_expired_sub", new String[]{"Débloquez OptiStock définitivement pour continuer à gérer vos stocks et vos tickets sans limite.", "Unlock OptiStock permanently to keep managing your inventory and receipts without limits.", "Desbloquea OptiStock para siempre para seguir gestionando tus stocks y tickets."});
         dict.put("launch_offer_badge", new String[]{"🚀 OFFRE DE LANCEMENT • LICENCE À VIE", "🚀 LAUNCH OFFER • LIFETIME LICENSE", "🚀 OFERTA DE LANZAMIENTO • DE POR VIDA"});
         dict.put("one_time_label", new String[]{"Achat unique • Aucun abonnement", "One-time purchase • No subscription", "Compra única • Sin suscripción"});
-        dict.put("pro_perks_list", new String[]{"✓ Multi-stocks & catégories illimités\n✓ Scan code-barres + saisie rapide sans scan\n✓ Ticket de caisse PDF, remises & envoi e-mail\n✓ Historique CSV & sauvegarde complète JSON\n✓ Mises à jour futures incluses", "✓ Unlimited multi-stocks & categories\n✓ Barcode scanner + fast manual mode\n✓ PDF receipts, discounts & client emails\n✓ CSV history & full JSON backup\n✓ All future updates included", "✓ Multi-stocks y categorías ilimitados\n✓ Escáner y modo manual rápido\n✓ Tickets PDF, descuentos y envío email\n✓ Historial CSV y copia de seguridad JSON"});
+        dict.put("pro_perks_list", new String[]{"✓ Multi-stocks & catégories illimités\n✓ Scan code-barres + saisie rapide sans scan\n✓ Import de catalogue CSV / Excel en 1 clic\n✓ Ticket de caisse PDF, remises & envoi e-mail\n✓ Historique CSV & sauvegarde complète JSON", "✓ Unlimited multi-stocks & categories\n✓ Barcode scanner + fast manual mode\n✓ 1-click CSV / Excel catalog import\n✓ PDF receipts, discounts & client emails\n✓ CSV history & full JSON backup", "✓ Multi-stocks y categorías ilimitados\n✓ Escáner y modo manual rápido\n✓ Importación CSV / Excel en 1 clic\n✓ Tickets PDF, descuentos y envío email"});
         dict.put("unlock_btn_fmt", new String[]{"🔓 Débloquer à vie (%1$s)", "🔓 Unlock Lifetime (%1$s)", "🔓 Desbloquear de por vida (%1$s)"});
         dict.put("pro_unlocked_toast", new String[]{"⭐ Merci ! OptiStock Version Pro est activé.", "⭐ Thank you! OptiStock Pro Version is active.", "⭐ ¡Gracias! OptiStock Versión Pro activada."});
 
@@ -672,50 +836,73 @@ public class MainActivity extends AppCompatActivity {
         return dict.containsKey(key) ? dict.get(key)[idx] : key;
     }
 
+    // ==================== CONSTRUCTION DE L'INTERFACE STUDIO ====================
+
     private void buildMainUI() {
         rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setPadding(dp(12), dp(10), dp(12), dp(10));
 
+        // 0. ENCADRÉ SUPÉRIEUR : ESSAI GRATUIT OU VERSION PRO
         trialBannerText = new TextView(this);
         trialBannerText.setTextSize(12);
         trialBannerText.setTypeface(null, Typeface.BOLD);
         trialBannerText.setGravity(Gravity.CENTER);
         trialBannerText.setPadding(dp(12), dp(7), dp(12), dp(7));
         trialBannerText.setOnClickListener(v -> openPlayStoreOrBilling());
+        elevate(trialBannerText, 4);
         LinearLayout.LayoutParams trialLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         trialLp.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(trialBannerText, trialLp);
 
-        headerLayout = new LinearLayout(this);
-        headerLayout.setOrientation(LinearLayout.HORIZONTAL);
-        headerLayout.setGravity(Gravity.CENTER_VERTICAL);
+        // 1. CARTE D'EN-TÊTE STUDIO (LOGO + TITRE + SOUS-TITRE + BARRE D'OUTILS ALIGNÉE EN DESSOUS)
+        headerCard = new LinearLayout(this);
+        headerCard.setOrientation(LinearLayout.VERTICAL);
+        headerCard.setPadding(dp(12), dp(10), dp(12), dp(10));
+        elevate(headerCard, 6);
+        LinearLayout.LayoutParams hCardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hCardLp.setMargins(0, 0, 0, dp(8));
+
+        LinearLayout topBrandRow = new LinearLayout(this);
+        topBrandRow.setOrientation(LinearLayout.HORIZONTAL);
+        topBrandRow.setGravity(Gravity.CENTER_VERTICAL);
 
         headerLogo = new ImageView(this);
         headerLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         loadAppLogoInto(headerLogo);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-        logoLp.setMargins(0, 0, dp(10), 0);
-        headerLayout.addView(headerLogo, logoLp);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        logoLp.setMargins(0, 0, dp(12), 0);
+        topBrandRow.addView(headerLogo, logoLp);
+
+        LinearLayout titleCol = new LinearLayout(this);
+        titleCol.setOrientation(LinearLayout.VERTICAL);
 
         titleText = new TextView(this);
         titleText.setTextSize(23);
         titleText.setTypeface(null, Typeface.BOLD);
         titleText.setSingleLine(true);
-        headerLayout.addView(titleText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        titleCol.addView(titleText);
 
-        rootLayout.addView(headerLayout);
+        subtitleText = new TextView(this);
+        subtitleText.setTextSize(10);
+        subtitleText.setTypeface(null, Typeface.BOLD);
+        subtitleText.setLetterSpacing(0.14f);
+        titleCol.addView(subtitleText);
 
+        topBrandRow.addView(titleCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        headerCard.addView(topBrandRow);
+
+        // 2. BARRE D'OUTILS ALIGNÉE SOUS LE LOGO : HISTORIQUE | EXPORTER | OPTIONS
         actionRowLayout = new LinearLayout(this);
         actionRowLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams actRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        actRowLp.setMargins(0, dp(8), 0, dp(6));
+        actRowLp.setMargins(0, dp(10), 0, 0);
 
         btnHistory = new Button(this);
         btnHistory.setTextSize(12);
         btnHistory.setAllCaps(false);
         btnHistory.setTypeface(null, Typeface.BOLD);
-        btnHistory.setPadding(dp(6), dp(4), dp(6), dp(4));
+        btnHistory.setPadding(dp(4), dp(4), dp(4), dp(4));
         btnHistory.setOnClickListener(v -> showHistoryDialog());
         LinearLayout.LayoutParams histLp = new LinearLayout.LayoutParams(0, dp(38), 1f);
         histLp.setMargins(0, 0, dp(4), 0);
@@ -725,7 +912,7 @@ public class MainActivity extends AppCompatActivity {
         btnExport.setTextSize(12);
         btnExport.setAllCaps(false);
         btnExport.setTypeface(null, Typeface.BOLD);
-        btnExport.setPadding(dp(6), dp(4), dp(6), dp(4));
+        btnExport.setPadding(dp(4), dp(4), dp(4), dp(4));
         btnExport.setOnClickListener(v -> showExportMenuDialog());
         LinearLayout.LayoutParams expLp = new LinearLayout.LayoutParams(0, dp(38), 1f);
         expLp.setMargins(dp(4), 0, dp(4), 0);
@@ -735,18 +922,20 @@ public class MainActivity extends AppCompatActivity {
         btnOptions.setTextSize(12);
         btnOptions.setAllCaps(false);
         btnOptions.setTypeface(null, Typeface.BOLD);
-        btnOptions.setPadding(dp(6), dp(4), dp(6), dp(4));
+        btnOptions.setPadding(dp(4), dp(4), dp(4), dp(4));
         btnOptions.setOnClickListener(v -> showOptionsDialog());
         LinearLayout.LayoutParams optLp = new LinearLayout.LayoutParams(0, dp(38), 1f);
         optLp.setMargins(dp(4), 0, 0, 0);
         actionRowLayout.addView(btnOptions, optLp);
 
-        rootLayout.addView(actionRowLayout, actRowLp);
+        headerCard.addView(actionRowLayout, actRowLp);
+        rootLayout.addView(headerCard, hCardLp);
 
+        // 3. SÉLECTEURS DE STOCK ET DE CATÉGORIE
         subHeaderLayout = new LinearLayout(this);
         subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        subLp.setMargins(0, dp(2), 0, dp(8));
+        subLp.setMargins(0, 0, 0, dp(8));
 
         btnStockSelector = new Button(this);
         btnStockSelector.setAllCaps(false);
@@ -754,6 +943,7 @@ public class MainActivity extends AppCompatActivity {
         btnStockSelector.setTypeface(null, Typeface.BOLD);
         btnStockSelector.setPadding(dp(10), dp(4), dp(10), dp(4));
         btnStockSelector.setOnClickListener(v -> showStockPopupMenu(v));
+        elevate(btnStockSelector, 4);
         LinearLayout.LayoutParams stBtnLp = new LinearLayout.LayoutParams(0, dp(40), 1.05f);
         stBtnLp.setMargins(0, 0, dp(5), 0);
         subHeaderLayout.addView(btnStockSelector, stBtnLp);
@@ -764,12 +954,14 @@ public class MainActivity extends AppCompatActivity {
         btnCatFilter.setTypeface(null, Typeface.BOLD);
         btnCatFilter.setPadding(dp(10), dp(4), dp(10), dp(4));
         btnCatFilter.setOnClickListener(v -> showCategoryFilterPopup(v));
+        elevate(btnCatFilter, 4);
         LinearLayout.LayoutParams catBtnLp = new LinearLayout.LayoutParams(0, dp(40), 0.95f);
         catBtnLp.setMargins(dp(5), 0, 0, 0);
         subHeaderLayout.addView(btnCatFilter, catBtnLp);
 
         rootLayout.addView(subHeaderLayout, subLp);
 
+        // 4. COMPTEURS KPI (3 CARTES AVEC RELIEF ET DÉGRADÉ)
         LinearLayout statsRow = new LinearLayout(this);
         statsRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams statsRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -778,12 +970,13 @@ public class MainActivity extends AppCompatActivity {
         statsRefsCard = new LinearLayout(this);
         statsRefsCard.setOrientation(LinearLayout.VERTICAL);
         statsRefsCard.setGravity(Gravity.CENTER);
-        statsRefsCard.setPadding(dp(8), dp(8), dp(8), dp(8));
+        statsRefsCard.setPadding(dp(8), dp(9), dp(8), dp(9));
+        elevate(statsRefsCard, 5);
         statsRefsValue = new TextView(this);
-        statsRefsValue.setTextSize(20);
+        statsRefsValue.setTextSize(21);
         statsRefsValue.setTypeface(null, Typeface.BOLD);
         statsRefsLabel = new TextView(this);
-        statsRefsLabel.setTextSize(10);
+        statsRefsLabel.setTextSize(9.5f);
         statsRefsLabel.setTypeface(null, Typeface.BOLD);
         statsRefsCard.addView(statsRefsValue);
         statsRefsCard.addView(statsRefsLabel);
@@ -794,12 +987,13 @@ public class MainActivity extends AppCompatActivity {
         statsUnitsCard = new LinearLayout(this);
         statsUnitsCard.setOrientation(LinearLayout.VERTICAL);
         statsUnitsCard.setGravity(Gravity.CENTER);
-        statsUnitsCard.setPadding(dp(8), dp(8), dp(8), dp(8));
+        statsUnitsCard.setPadding(dp(8), dp(9), dp(8), dp(9));
+        elevate(statsUnitsCard, 5);
         statsUnitsValue = new TextView(this);
-        statsUnitsValue.setTextSize(20);
+        statsUnitsValue.setTextSize(21);
         statsUnitsValue.setTypeface(null, Typeface.BOLD);
         statsUnitsLabel = new TextView(this);
-        statsUnitsLabel.setTextSize(10);
+        statsUnitsLabel.setTextSize(9.5f);
         statsUnitsLabel.setTypeface(null, Typeface.BOLD);
         statsUnitsCard.addView(statsUnitsValue);
         statsUnitsCard.addView(statsUnitsLabel);
@@ -810,12 +1004,13 @@ public class MainActivity extends AppCompatActivity {
         statsLowCard = new LinearLayout(this);
         statsLowCard.setOrientation(LinearLayout.VERTICAL);
         statsLowCard.setGravity(Gravity.CENTER);
-        statsLowCard.setPadding(dp(8), dp(8), dp(8), dp(8));
+        statsLowCard.setPadding(dp(8), dp(9), dp(8), dp(9));
+        elevate(statsLowCard, 5);
         statsLowValue = new TextView(this);
-        statsLowValue.setTextSize(20);
+        statsLowValue.setTextSize(21);
         statsLowValue.setTypeface(null, Typeface.BOLD);
         statsLowLabel = new TextView(this);
-        statsLowLabel.setTextSize(10);
+        statsLowLabel.setTextSize(9.5f);
         statsLowLabel.setTypeface(null, Typeface.BOLD);
         statsLowCard.addView(statsLowValue);
         statsLowCard.addView(statsLowLabel);
@@ -829,10 +1024,12 @@ public class MainActivity extends AppCompatActivity {
 
         rootLayout.addView(statsRow, statsRowLp);
 
+        // 5. BARRE DE RECHERCHE LUMINEUSE
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
         searchInput.setTextSize(14);
-        searchInput.setPadding(dp(12), dp(9), dp(12), dp(9));
+        searchInput.setPadding(dp(14), dp(10), dp(14), dp(10));
+        elevate(searchInput, 3);
         searchInput.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -845,35 +1042,38 @@ public class MainActivity extends AppCompatActivity {
         searchParams.setMargins(0, 0, 0, dp(8));
         rootLayout.addView(searchInput, searchParams);
 
+        // 6. ZONE CENTRALE
         emptyContainer = new LinearLayout(this);
         emptyContainer.setOrientation(LinearLayout.VERTICAL);
         emptyContainer.setGravity(Gravity.CENTER);
         emptyLogo = new ImageView(this);
         emptyLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         loadAppLogoInto(emptyLogo);
-        emptyLogo.setAlpha(0.22f);
-        LinearLayout.LayoutParams emptyLogoLp = new LinearLayout.LayoutParams(dp(110), dp(110));
+        emptyLogo.setAlpha(0.24f);
+        LinearLayout.LayoutParams emptyLogoLp = new LinearLayout.LayoutParams(dp(115), dp(115));
         emptyLogoLp.setMargins(0, 0, 0, dp(10));
         emptyContainer.addView(emptyLogo, emptyLogoLp);
 
         emptyText = new TextView(this);
         emptyText.setGravity(Gravity.CENTER);
         emptyText.setTextSize(14);
-        emptyText.setPadding(dp(20), 0, dp(20), 0);
+        emptyText.setPadding(dp(24), 0, dp(24), 0);
         emptyContainer.addView(emptyText);
         rootLayout.addView(emptyContainer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         listView = new ListView(this);
         listView.setDivider(null);
-        listView.setDividerHeight(dp(8));
+        listView.setDividerHeight(dp(9));
         adapter = new InventoryAdapter();
         listView.setAdapter(adapter);
         rootLayout.addView(listView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        // 7. BANDEAU TICKET EN COURS
         exitTotalBanner = new LinearLayout(this);
         exitTotalBanner.setOrientation(LinearLayout.HORIZONTAL);
         exitTotalBanner.setGravity(Gravity.CENTER_VERTICAL);
-        exitTotalBanner.setPadding(dp(12), dp(7), dp(10), dp(7));
+        exitTotalBanner.setPadding(dp(12), dp(8), dp(10), dp(8));
+        elevate(exitTotalBanner, 6);
         LinearLayout.LayoutParams bannerLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         bannerLp.setMargins(0, dp(6), 0, dp(4));
 
@@ -884,22 +1084,16 @@ public class MainActivity extends AppCompatActivity {
         exitTotalText.setOnClickListener(v -> showReceiptDialog());
         exitTotalBanner.addView(exitTotalText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        btnOpenReceipt = new Button(this);
-        btnOpenReceipt.setAllCaps(false);
+        btnOpenReceipt = createStudioButton(tr("btn_receipt_view"), Color.parseColor("#0284C7"), Color.parseColor("#0369A1"), Color.parseColor("#7DD3FC"));
         btnOpenReceipt.setTextSize(12);
-        btnOpenReceipt.setTypeface(null, Typeface.BOLD);
-        btnOpenReceipt.setTextColor(Color.WHITE);
-        btnOpenReceipt.setPadding(dp(10), dp(4), dp(10), dp(4));
-        btnOpenReceipt.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(8), dp(1), Color.parseColor("#38BDF8")));
+        btnOpenReceipt.setPadding(dp(10), dp(2), dp(10), dp(2));
         btnOpenReceipt.setOnClickListener(v -> showReceiptDialog());
-        LinearLayout.LayoutParams openRecLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32));
+        LinearLayout.LayoutParams openRecLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
         openRecLp.setMargins(dp(6), 0, dp(6), 0);
         exitTotalBanner.addView(btnOpenReceipt, openRecLp);
 
-        Button btnResetTotal = new Button(this);
-        btnResetTotal.setText("↺");
-        btnResetTotal.setTextColor(Color.WHITE);
-        btnResetTotal.setBackground(createRoundedBg(Color.parseColor("#7F1D1D"), dp(8), dp(1), Color.parseColor("#F87171")));
+        Button btnResetTotal = createStudioButton("↺", Color.parseColor("#991B1B"), Color.parseColor("#7F1D1D"), Color.parseColor("#FCA5A5"));
+        btnResetTotal.setPadding(0, 0, 0, 0);
         btnResetTotal.setOnClickListener(v -> {
             archiveCurrentReceiptIfNotEmpty(0.0, true);
             currentReceipt.clear();
@@ -908,22 +1102,19 @@ public class MainActivity extends AppCompatActivity {
             saveData();
             updateStats();
         });
-        exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(34), dp(32)));
+        exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(36), dp(34)));
         rootLayout.addView(exitTotalBanner, bannerLp);
 
+        // 8. BARRE DU BAS : BOUTON "TEST" EN BAS À GAUCHE + ENTRÉE + SORTIE EN DÉGRADÉ 3D
         bottomBarLayout = new LinearLayout(this);
         bottomBarLayout.setOrientation(LinearLayout.HORIZONTAL);
         bottomBarLayout.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         actParams.setMargins(0, dp(6), 0, dp(2));
 
-        btnTestSim = new Button(this);
-        btnTestSim.setText("🧪 TEST");
+        btnTestSim = createStudioButton("🧪 TEST", Color.parseColor("#8B5CF6"), Color.parseColor("#5B21B6"), Color.parseColor("#DDD6FE"));
         btnTestSim.setTextSize(11);
-        btnTestSim.setAllCaps(false);
-        btnTestSim.setTypeface(null, Typeface.BOLD);
-        btnTestSim.setTextColor(Color.WHITE);
-        btnTestSim.setBackground(createRoundedBg(Color.parseColor("#7C3AED"), dp(12), dp(1), Color.parseColor("#C4B5FD")));
+        btnTestSim.setPadding(dp(4), dp(4), dp(4), dp(4));
         btnTestSim.setOnClickListener(v -> {
             boolean cur = prefs.getBoolean("devBypassPro", false);
             prefs.edit().putBoolean("devBypassPro", !cur).apply();
@@ -935,27 +1126,21 @@ public class MainActivity extends AppCompatActivity {
             showPaywallUI();
             return true;
         });
-        LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(dp(68), dp(52));
+        LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(dp(68), dp(54));
         testLp.setMargins(0, 0, dp(6), 0);
         bottomBarLayout.addView(btnTestSim, testLp);
 
-        btnEntry = new Button(this);
+        btnEntry = createStudioButton(tr("btn_in"), Color.parseColor("#10B981"), Color.parseColor("#047857"), Color.parseColor("#6EE7B7"));
         btnEntry.setTextSize(15);
-        btnEntry.setTypeface(null, Typeface.BOLD);
-        btnEntry.setTextColor(Color.WHITE);
-        btnEntry.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(14), dp(2), Color.parseColor("#34D399")));
         btnEntry.setOnClickListener(v -> handleEntryAction());
-        LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
         btnInParams.setMargins(0, 0, dp(5), 0);
         bottomBarLayout.addView(btnEntry, btnInParams);
 
-        btnExit = new Button(this);
+        btnExit = createStudioButton(tr("btn_out"), Color.parseColor("#EF4444"), Color.parseColor("#B91C1C"), Color.parseColor("#FCA5A5"));
         btnExit.setTextSize(15);
-        btnExit.setTypeface(null, Typeface.BOLD);
-        btnExit.setTextColor(Color.WHITE);
-        btnExit.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(14), dp(2), Color.parseColor("#F87171")));
         btnExit.setOnClickListener(v -> handleExitAction());
-        LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
         btnOutParams.setMargins(dp(5), 0, 0, 0);
         bottomBarLayout.addView(btnExit, btnOutParams);
 
@@ -964,26 +1149,27 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyThemeAndLang() {
-        int bgColor = isDarkMode ? Color.parseColor("#040B1C") : Color.parseColor("#F1F5F9");
-        int cardColor = isDarkMode ? Color.parseColor("#0F172A") : Color.parseColor("#FFFFFF");
-        int accentCard = isDarkMode ? Color.parseColor("#112240") : Color.parseColor("#DBEAFE");
-        int borderCyan = isDarkMode ? Color.parseColor("#0EA5E9") : Color.parseColor("#38BDF8");
-        int borderSubtle = isDarkMode ? Color.parseColor("#1E3A8A") : Color.parseColor("#CBD5E1");
         int textColor = isDarkMode ? Color.parseColor("#F8FAFC") : Color.parseColor("#0F172A");
-        int subTextColor = isDarkMode ? Color.parseColor("#94A3B8") : Color.parseColor("#64748B");
+        int subTextColor = isDarkMode ? Color.parseColor("#94A3B8") : Color.parseColor("#475569");
         int cyanHighlight = isDarkMode ? Color.parseColor("#38BDF8") : Color.parseColor("#0284C7");
 
-        rootLayout.setBackgroundColor(bgColor);
+        if (isDarkMode) {
+            rootLayout.setBackground(createGradientBg(Color.parseColor("#020617"), Color.parseColor("#0B1736"), 0, 0, 0));
+            headerCard.setBackground(createGradientBg(Color.parseColor("#0F172A"), Color.parseColor("#091326"), dp(18), dp(1), Color.parseColor("#1E3A8A")));
+        } else {
+            rootLayout.setBackgroundColor(Color.parseColor("#E2E8F0"));
+            headerCard.setBackground(createGradientBg(Color.parseColor("#FFFFFF"), Color.parseColor("#F8FAFC"), dp(18), dp(1), Color.parseColor("#CBD5E1")));
+        }
 
         trialBannerText.setVisibility(View.VISIBLE);
         if (isProUnlocked()) {
             trialBannerText.setText(tr("pro_version_badge"));
-            trialBannerText.setTextColor(Color.parseColor("#34D399"));
-            trialBannerText.setBackground(createRoundedBg(Color.parseColor("#064E3B"), dp(8), dp(1), Color.parseColor("#10B981")));
+            trialBannerText.setTextColor(Color.parseColor("#A7F3D0"));
+            trialBannerText.setBackground(createGradientBg(Color.parseColor("#065F46"), Color.parseColor("#064E3B"), dp(10), dp(1), Color.parseColor("#34D399")));
         } else {
             trialBannerText.setText(String.format(Locale.getDefault(), tr("trial_banner_fmt"), getRemainingTrialDays()));
-            trialBannerText.setTextColor(Color.parseColor("#38BDF8"));
-            trialBannerText.setBackground(createRoundedBg(Color.parseColor("#0F172A"), dp(8), dp(1), Color.parseColor("#0284C7")));
+            trialBannerText.setTextColor(Color.parseColor("#E0F2FE"));
+            trialBannerText.setBackground(createGradientBg(Color.parseColor("#0369A1"), Color.parseColor("#0F172A"), dp(10), dp(1), Color.parseColor("#38BDF8")));
         }
 
         SpannableString styledTitle = new SpannableString("OptiStock");
@@ -991,44 +1177,56 @@ public class MainActivity extends AppCompatActivity {
         styledTitle.setSpan(new ForegroundColorSpan(cyanHighlight), 4, 9, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         titleText.setText(styledTitle);
 
+        String subBrand = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : tr("app_sub");
+        subtitleText.setText(subBrand);
+        subtitleText.setTextColor(cyanHighlight);
+
+        int toolC1 = isDarkMode ? Color.parseColor("#1E293B") : Color.parseColor("#F1F5F9");
+        int toolC2 = isDarkMode ? Color.parseColor("#0F172A") : Color.parseColor("#E2E8F0");
+        int toolBorder = isDarkMode ? Color.parseColor("#334155") : Color.parseColor("#CBD5E1");
+
         btnHistory.setText(tr("hist_btn"));
         btnHistory.setTextColor(textColor);
-        btnHistory.setBackground(createRoundedBg(cardColor, dp(10), dp(1), borderSubtle));
+        btnHistory.setBackground(createGradientBg(toolC1, toolC2, dp(10), dp(1), toolBorder));
 
         btnExport.setText(tr("export_btn"));
         btnExport.setTextColor(Color.WHITE);
-        btnExport.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(10), dp(1), Color.parseColor("#38BDF8")));
+        btnExport.setBackground(createGradientBg(Color.parseColor("#0284C7"), Color.parseColor("#0369A1"), dp(10), dp(1), Color.parseColor("#7DD3FC")));
 
         btnOptions.setText(tr("options_title"));
         btnOptions.setTextColor(textColor);
-        btnOptions.setBackground(createRoundedBg(cardColor, dp(10), dp(1), borderSubtle));
+        btnOptions.setBackground(createGradientBg(toolC1, toolC2, dp(10), dp(1), toolBorder));
 
         btnStockSelector.setText("🏢 " + currentStock + " ▼");
         btnStockSelector.setTextColor(textColor);
-        btnStockSelector.setBackground(createRoundedBg(accentCard, dp(12), dp(1), borderCyan));
+        btnStockSelector.setBackground(createGradientBg(
+                isDarkMode ? Color.parseColor("#162B4D") : Color.parseColor("#DBEAFE"),
+                isDarkMode ? Color.parseColor("#0B1736") : Color.parseColor("#BFDBFE"),
+                dp(12), dp(1), Color.parseColor("#0EA5E9")
+        ));
 
         String catLabel = selectedCategoryFilter.equals("ALL") ? tr("all_cats") : selectedCategoryFilter;
         btnCatFilter.setText("🏷️ " + catLabel + " ▼");
         btnCatFilter.setTextColor(textColor);
-        btnCatFilter.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
+        btnCatFilter.setBackground(createGradientBg(toolC1, toolC2, dp(12), dp(1), toolBorder));
 
-        statsRefsCard.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
+        statsRefsCard.setBackground(createGradientBg(toolC1, toolC2, dp(14), dp(1), Color.parseColor("#0284C7")));
         statsRefsValue.setTextColor(cyanHighlight);
         statsRefsLabel.setTextColor(subTextColor);
         statsRefsLabel.setText(tr("refs"));
 
-        statsUnitsCard.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
-        statsUnitsValue.setTextColor(Color.parseColor("#10B981"));
+        statsUnitsCard.setBackground(createGradientBg(toolC1, toolC2, dp(14), dp(1), Color.parseColor("#059669")));
+        statsUnitsValue.setTextColor(Color.parseColor("#34D399"));
         statsUnitsLabel.setTextColor(subTextColor);
         statsUnitsLabel.setText(tr("units"));
 
         if (onlyLowStockFilter) {
-            statsLowCard.setBackground(createRoundedBg(Color.parseColor("#451A03"), dp(12), dp(2), Color.parseColor("#F59E0B")));
+            statsLowCard.setBackground(createGradientBg(Color.parseColor("#78350F"), Color.parseColor("#451A03"), dp(14), dp(2), Color.parseColor("#FBBF24")));
         } else {
-            statsLowCard.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
+            statsLowCard.setBackground(createGradientBg(toolC1, toolC2, dp(14), dp(1), Color.parseColor("#D97706")));
         }
-        statsLowValue.setTextColor(Color.parseColor("#F59E0B"));
-        statsLowLabel.setTextColor(onlyLowStockFilter ? Color.parseColor("#FBBF24") : subTextColor);
+        statsLowValue.setTextColor(Color.parseColor("#FBBF24"));
+        statsLowLabel.setTextColor(onlyLowStockFilter ? Color.parseColor("#FDE68A") : subTextColor);
         statsLowLabel.setText(tr("low_stock"));
 
         btnEntry.setText(tr("btn_in"));
@@ -1038,71 +1236,53 @@ public class MainActivity extends AppCompatActivity {
         searchInput.setHint(tr("search"));
         searchInput.setTextColor(textColor);
         searchInput.setHintTextColor(subTextColor);
-        searchInput.setBackground(createRoundedBg(cardColor, dp(12), dp(1), borderSubtle));
+        searchInput.setBackground(createGradientBg(toolC1, toolC2, dp(14), dp(1), Color.parseColor("#0284C7")));
 
         emptyText.setText(tr("empty"));
         emptyText.setTextColor(subTextColor);
 
-        exitTotalBanner.setBackground(createRoundedBg(Color.parseColor("#1E293B"), dp(12), dp(1), Color.parseColor("#38BDF8")));
+        exitTotalBanner.setBackground(createGradientBg(Color.parseColor("#0F172A"), Color.parseColor("#1E293B"), dp(14), dp(1), Color.parseColor("#38BDF8")));
         filterList();
     }
+
+    // ==================== MENU D'EXPORTATION STUDIO ====================
 
     private void showExportMenuDialog() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(16), dp(20), dp(16));
 
         AlertDialog[] holder = new AlertDialog[1];
 
-        Button bStocks = new Button(this);
-        bStocks.setText("📦 Exporter les stocks (PDF)");
-        bStocks.setAllCaps(false);
+        Button bStocks = createStudioButton("📦 Exporter les stocks (PDF)", Color.parseColor("#0284C7"), Color.parseColor("#0369A1"), Color.parseColor("#7DD3FC"));
         bStocks.setTextSize(14);
-        bStocks.setTypeface(null, Typeface.BOLD);
-        bStocks.setTextColor(Color.WHITE);
-        bStocks.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(12), dp(1), Color.parseColor("#38BDF8")));
         bStocks.setOnClickListener(v -> {
             if (holder[0] != null) holder[0].dismiss();
             showExportStocksOrExitsDialog(true);
         });
-        LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
         lp1.setMargins(0, 0, 0, dp(10));
         box.addView(bStocks, lp1);
 
-        Button bExits = new Button(this);
-        bExits.setText("🔴 Exporter les sorties (PDF)");
-        bExits.setAllCaps(false);
+        Button bExits = createStudioButton("🔴 Exporter les sorties (PDF)", Color.parseColor("#EF4444"), Color.parseColor("#B91C1C"), Color.parseColor("#FCA5A5"));
         bExits.setTextSize(14);
-        bExits.setTypeface(null, Typeface.BOLD);
-        bExits.setTextColor(Color.WHITE);
-        bExits.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(12), dp(1), Color.parseColor("#F87171")));
         bExits.setOnClickListener(v -> {
             if (holder[0] != null) holder[0].dismiss();
             showExportStocksOrExitsDialog(false);
         });
-        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
         lp2.setMargins(0, 0, 0, dp(10));
         box.addView(bExits, lp2);
 
-        Button bReceipts = new Button(this);
-        bReceipts.setText("🧾 Exporter les tickets de caisse (PDF)");
-        bReceipts.setAllCaps(false);
+        Button bReceipts = createStudioButton("🧾 Exporter les tickets de caisse (PDF)", Color.parseColor("#10B981"), Color.parseColor("#047857"), Color.parseColor("#6EE7B7"));
         bReceipts.setTextSize(14);
-        bReceipts.setTypeface(null, Typeface.BOLD);
-        bReceipts.setTextColor(Color.WHITE);
-        bReceipts.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(12), dp(1), Color.parseColor("#34D399")));
         bReceipts.setOnClickListener(v -> {
             if (holder[0] != null) holder[0].dismiss();
             showExportReceiptsPeriodDialog();
         });
-        LinearLayout.LayoutParams lp3 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        LinearLayout.LayoutParams lp3 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
         box.addView(bReceipts, lp3);
 
-        holder[0] = new AlertDialog.Builder(this)
-                .setTitle("📤 Que souhaitez-vous exporter ?")
-                .setView(box)
-                .setNegativeButton(tr("cancel"), null)
-                .create();
+        holder[0] = createStudioDialog("📤 Centre d'Exportation", box, null, null, null, null, tr("cancel"));
         holder[0].show();
     }
 
@@ -1110,43 +1290,37 @@ public class MainActivity extends AppCompatActivity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(14), dp(20), dp(10));
         scroll.addView(box);
 
-        TextView stTitle = new TextView(this);
-        stTitle.setText("🏢 Sélectionnez le(s) stock(s) :");
-        stTitle.setTypeface(null, Typeface.BOLD);
-        stTitle.setPadding(0, 0, 0, dp(6));
-        box.addView(stTitle);
+        box.addView(createSectionLabel("🏢 Sélectionnez le(s) stock(s) :"));
 
         final List<CheckBox> stockBoxes = new ArrayList<>();
         for (String st : stocksList) {
             CheckBox cb = new CheckBox(this);
             cb.setText(st);
+            cb.setTextColor(Color.WHITE);
             cb.setChecked(st.equals(currentStock));
             stockBoxes.add(cb);
             box.addView(cb);
         }
 
-        TextView catTitle = new TextView(this);
-        catTitle.setText("🏷️ Sélectionnez la ou les catégorie(s) :");
-        catTitle.setTypeface(null, Typeface.BOLD);
-        catTitle.setPadding(0, dp(14), 0, dp(6));
-        box.addView(catTitle);
+        box.addView(createSectionLabel("🏷️ Sélectionnez la ou les catégorie(s) :"));
 
         final List<CheckBox> catBoxes = new ArrayList<>();
         for (String cat : categoriesList) {
             CheckBox cb = new CheckBox(this);
             cb.setText(cat);
+            cb.setTextColor(Color.WHITE);
             cb.setChecked(true);
             catBoxes.add(cb);
             box.addView(cb);
         }
 
-        new AlertDialog.Builder(this)
-                .setTitle(isStocksExport ? "📦 Exporter les stocks" : "🔴 Exporter les sorties")
-                .setView(scroll)
-                .setPositiveButton("📄 Générer PDF", (d, w) -> {
+        createStudioDialog(
+                isStocksExport ? "📦 Exporter les stocks" : "🔴 Exporter les sorties",
+                scroll,
+                "📄 Générer PDF",
+                () -> {
                     pendingExportStocks.clear();
                     for (CheckBox cb : stockBoxes) {
                         if (cb.isChecked()) pendingExportStocks.add(cb.getText().toString());
@@ -1165,45 +1339,44 @@ public class MainActivity extends AppCompatActivity {
                     String prefix = isStocksExport ? "Stocks_" : "Sorties_";
                     intent.putExtra(Intent.EXTRA_TITLE, prefix + new SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.getDefault()).format(new Date()) + ".pdf");
                     startActivityForResult(intent, isStocksExport ? REQ_EXPORT_STOCKS_PDF : REQ_EXPORT_EXITS_PDF);
-                })
-                .setNegativeButton(tr("cancel"), null)
-                .show();
+                },
+                null, null, tr("cancel")
+        ).show();
     }
 
     private void showExportReceiptsPeriodDialog() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(16), dp(20), dp(10));
 
-        TextView label = new TextView(this);
-        label.setText("📅 Choisissez la période des tickets de caisse :");
-        label.setTypeface(null, Typeface.BOLD);
-        label.setPadding(0, 0, 0, dp(10));
-        box.addView(label);
+        box.addView(createSectionLabel("📅 Choisissez la période des tickets de caisse :"));
 
         RadioGroup rg = new RadioGroup(this);
         RadioButton rbDay = new RadioButton(this);
         rbDay.setId(101);
         rbDay.setText("Aujourd'hui (Tickets de la journée)");
+        rbDay.setTextColor(Color.WHITE);
         rbDay.setChecked(true);
         rg.addView(rbDay);
 
         RadioButton rbWeek = new RadioButton(this);
         rbWeek.setId(102);
         rbWeek.setText("Cette semaine (7 derniers jours)");
+        rbWeek.setTextColor(Color.WHITE);
         rg.addView(rbWeek);
 
         RadioButton rbMonth = new RadioButton(this);
         rbMonth.setId(103);
         rbMonth.setText("Ce mois-ci (30 derniers jours)");
+        rbMonth.setTextColor(Color.WHITE);
         rg.addView(rbMonth);
 
         box.addView(rg);
 
-        new AlertDialog.Builder(this)
-                .setTitle("🧾 Exporter les tickets")
-                .setView(box)
-                .setPositiveButton("📄 Générer PDF", (d, w) -> {
+        createStudioDialog(
+                "🧾 Exporter les tickets",
+                box,
+                "📄 Générer PDF",
+                () -> {
                     int checkedId = rg.getCheckedRadioButtonId();
                     pendingReceiptsPeriod = (checkedId == 102) ? 1 : ((checkedId == 103) ? 2 : 0);
                     Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -1212,9 +1385,9 @@ public class MainActivity extends AppCompatActivity {
                     String pName = pendingReceiptsPeriod == 0 ? "Jour_" : (pendingReceiptsPeriod == 1 ? "Semaine_" : "Mois_");
                     intent.putExtra(Intent.EXTRA_TITLE, "Tickets_" + pName + new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date()) + ".pdf");
                     startActivityForResult(intent, REQ_EXPORT_RECEIPTS_PERIOD_PDF);
-                })
-                .setNegativeButton(tr("cancel"), null)
-                .show();
+                },
+                null, null, tr("cancel")
+        ).show();
     }
 
     private int drawCompanyPdfHeader(Canvas canvas, Paint paint, Paint linePaint, String docTitle, int pageWidth) {
@@ -1599,12 +1772,12 @@ public class MainActivity extends AppCompatActivity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(16), dp(12), dp(16), dp(12));
         scroll.addView(box);
 
         if (movementsHistory.isEmpty()) {
             TextView emptyTv = new TextView(this);
             emptyTv.setText(tr("history_empty"));
+            emptyTv.setTextColor(Color.parseColor("#94A3B8"));
             emptyTv.setGravity(Gravity.CENTER);
             emptyTv.setPadding(dp(16), dp(30), dp(16), dp(30));
             box.addView(emptyTv);
@@ -1617,8 +1790,8 @@ public class MainActivity extends AppCompatActivity {
                 LinearLayout row = new LinearLayout(this);
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(10), dp(8), dp(10), dp(8));
-                row.setBackground(createRoundedBg(Color.parseColor("#1E293B"), dp(10), dp(1), isIn ? Color.parseColor("#059669") : Color.parseColor("#DC2626")));
+                row.setPadding(dp(12), dp(9), dp(12), dp(9));
+                row.setBackground(createGradientBg(Color.parseColor("#1E293B"), Color.parseColor("#0F172A"), dp(12), dp(1), isIn ? Color.parseColor("#10B981") : Color.parseColor("#EF4444")));
                 LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 rLp.setMargins(0, 0, 0, dp(6));
 
@@ -1654,19 +1827,18 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
-                .setTitle(tr("history_title"))
-                .setView(scroll)
-                .setNegativeButton(tr("cancel"), null);
-
-        if (!movementsHistory.isEmpty()) {
-            b.setPositiveButton(tr("history_csv_btn"), (d, w) -> startHistoryCsvExport());
-            b.setNeutralButton(tr("history_clear_btn"), (d, w) -> {
-                movementsHistory.clear();
-                saveData();
-            });
-        }
-        b.show();
+        createStudioDialog(
+                tr("history_title"),
+                scroll,
+                movementsHistory.isEmpty() ? null : tr("history_csv_btn"),
+                this::startHistoryCsvExport,
+                movementsHistory.isEmpty() ? null : tr("history_clear_btn"),
+                () -> {
+                    movementsHistory.clear();
+                    saveData();
+                },
+                tr("cancel")
+        ).show();
     }
 
     private void startHistoryCsvExport() {
@@ -1701,9 +1873,137 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ==================== IMPORT CATALOGUE CSV / EXCEL ====================
+
+    private void startCatalogCsvImport() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(intent, REQ_IMPORT_CATALOG_CSV);
+    }
+
+    private void startSampleCsvExport() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/csv");
+        intent.putExtra(Intent.EXTRA_TITLE, "Modele_Catalogue_OptiStock.csv");
+        startActivityForResult(intent, REQ_EXPORT_SAMPLE_CSV);
+    }
+
+    private void generateSampleCsvToUri(Uri uri) {
+        try {
+            String sample = "\uFEFFCode;Nom;Quantite;Prix;Categorie;Stock\n"
+                    + "3017620422003;Produit Exemple A;25;4.50;Général;" + currentStock + "\n"
+                    + "REF-002;Article Exemple B;10;12.90;Matériel;" + currentStock + "\n";
+            OutputStream os = getContentResolver().openOutputStream(uri);
+            if (os != null) {
+                os.write(sample.getBytes(StandardCharsets.UTF_8));
+                os.close();
+            }
+            Toast.makeText(this, tr("csv_ok"), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur modèle CSV : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void importCatalogFromCsvUri(Uri uri) {
+        try {
+            InputStream is = getContentResolver().openInputStream(uri);
+            if (is == null) return;
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+            String line;
+            int importedCount = 0;
+            boolean firstLine = true;
+
+            while ((line = reader.readLine()) != null) {
+                line = line.replace("\uFEFF", "").trim();
+                if (line.isEmpty()) continue;
+
+                String sep = line.contains(";") ? ";" : ",";
+                String[] parts = line.split(sep, -1);
+
+                if (firstLine) {
+                    firstLine = false;
+                    String low = line.toLowerCase();
+                    if (low.contains("nom") || low.contains("name") || low.contains("produit") || low.contains("quantit")) {
+                        continue;
+                    }
+                }
+
+                String code = "", name = "", cat = currentStock, stock = currentStock;
+                int qty = 1;
+                double price = 0.0;
+
+                if (parts.length == 1) {
+                    name = parts[0].trim();
+                } else {
+                    code = parts[0].trim();
+                    name = parts[1].trim();
+                    if (parts.length >= 3) {
+                        try { qty = Integer.parseInt(parts[2].trim()); } catch (Exception ignored) {}
+                    }
+                    if (parts.length >= 4) {
+                        try { price = Double.parseDouble(parts[3].trim().replace(",", ".")); } catch (Exception ignored) {}
+                    }
+                    if (parts.length >= 5 && !parts[4].trim().isEmpty()) {
+                        cat = parts[4].trim();
+                    } else {
+                        cat = categoriesList.isEmpty() ? tr("uncategorized") : categoriesList.get(0);
+                    }
+                    if (parts.length >= 6 && !parts[5].trim().isEmpty()) {
+                        stock = parts[5].trim();
+                    } else {
+                        stock = currentStock;
+                    }
+                }
+
+                if (name.isEmpty() && code.isEmpty()) continue;
+                if (code.isEmpty()) code = "CSV-" + (System.currentTimeMillis() % 10000) + "-" + importedCount;
+                if (name.isEmpty()) name = code;
+
+                if (!stocksList.contains(stock)) stocksList.add(stock);
+                if (!categoriesList.contains(cat)) categoriesList.add(cat);
+
+                Product existing = null;
+                for (Product p : inventory) {
+                    if (p.barcode.equalsIgnoreCase(code) && stock.equals(p.stockName)) {
+                        existing = p;
+                        break;
+                    }
+                }
+
+                if (existing != null) {
+                    existing.name = name;
+                    existing.quantity += Math.max(0, qty);
+                    if (price > 0) existing.price = price;
+                    existing.category = cat;
+                } else {
+                    Product np = new Product();
+                    np.barcode = code;
+                    np.name = name;
+                    np.quantity = Math.max(0, qty);
+                    np.price = Math.max(0.0, price);
+                    np.category = cat;
+                    np.stockName = stock;
+                    np.imagePath = "";
+                    inventory.add(0, np);
+                }
+                importedCount++;
+            }
+            reader.close();
+            saveData();
+            applyThemeAndLang();
+            Toast.makeText(this, "✅ " + importedCount + " produit(s) importé(s) avec succès !", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erreur import CSV : " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // ==================== TICKET DE CAISSE STUDIO ====================
+
     private String buildReceiptText(double discountVal, boolean isPercent) {
         StringBuilder sb = new StringBuilder();
-        String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "ENTREPRISE";
+        String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
         sb.append("================================\n");
         sb.append("      ").append(title).append("\n");
         if (senderEmail != null && !senderEmail.isEmpty()) {
@@ -1746,7 +2046,6 @@ public class MainActivity extends AppCompatActivity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(16), dp(12), dp(16), dp(12));
         scroll.addView(box);
 
         final double[] discVal = {0.0};
@@ -1760,12 +2059,12 @@ public class MainActivity extends AppCompatActivity {
 
         TextView discTv = new TextView(this);
         discTv.setText(tr("discount_label"));
+        discTv.setTextColor(Color.WHITE);
         discTv.setTypeface(null, Typeface.BOLD);
         discTv.setTextSize(13);
         discRow.addView(discTv);
 
-        EditText discInput = new EditText(this);
-        discInput.setHint("0");
+        EditText discInput = createStyledInput("0", "");
         discInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         discInput.setGravity(Gravity.CENTER);
         discInput.setSingleLine(true);
@@ -1773,20 +2072,12 @@ public class MainActivity extends AppCompatActivity {
         dInLp.setMargins(dp(8), 0, dp(6), 0);
         discRow.addView(discInput, dInLp);
 
-        Button btnToggleUnit = new Button(this);
-        btnToggleUnit.setText("%");
-        btnToggleUnit.setTypeface(null, Typeface.BOLD);
-        btnToggleUnit.setTextColor(Color.WHITE);
-        btnToggleUnit.setBackground(createRoundedBg(Color.parseColor("#0284C7"), dp(8)));
+        Button btnToggleUnit = createStudioButton("%", Color.parseColor("#0284C7"), Color.parseColor("#0369A1"), Color.parseColor("#7DD3FC"));
+        btnToggleUnit.setPadding(0, 0, 0, 0);
         discRow.addView(btnToggleUnit, new LinearLayout.LayoutParams(dp(44), dp(38)));
 
-        Button btnReceiptPdf = new Button(this);
-        btnReceiptPdf.setText(tr("receipt_pdf_btn"));
-        btnReceiptPdf.setAllCaps(false);
+        Button btnReceiptPdf = createStudioButton(tr("receipt_pdf_btn"), Color.parseColor("#10B981"), Color.parseColor("#047857"), Color.parseColor("#6EE7B7"));
         btnReceiptPdf.setTextSize(12);
-        btnReceiptPdf.setTypeface(null, Typeface.BOLD);
-        btnReceiptPdf.setTextColor(Color.WHITE);
-        btnReceiptPdf.setBackground(createRoundedBg(Color.parseColor("#059669"), dp(8)));
         LinearLayout.LayoutParams rPdfLp = new LinearLayout.LayoutParams(0, dp(38), 1f);
         rPdfLp.setMargins(dp(8), 0, 0, 0);
         discRow.addView(btnReceiptPdf, rPdfLp);
@@ -1796,7 +2087,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout paperTicketCard = new LinearLayout(this);
         paperTicketCard.setOrientation(LinearLayout.VERTICAL);
         paperTicketCard.setGravity(Gravity.CENTER_HORIZONTAL);
-        paperTicketCard.setBackground(createRoundedBg(Color.parseColor("#F8FAFC"), dp(10), dp(1), Color.parseColor("#CBD5E1")));
+        paperTicketCard.setBackground(createRoundedBg(Color.parseColor("#F8FAFC"), dp(12), dp(1), Color.parseColor("#CBD5E1")));
         paperTicketCard.setPadding(dp(14), dp(12), dp(14), dp(12));
 
         Bitmap userLogo = getUserCompanyLogoBitmap();
@@ -1847,26 +2138,20 @@ public class MainActivity extends AppCompatActivity {
 
         TextView senderInfoTv = new TextView(this);
         String senderStatus = senderEmail.isEmpty()
-                ? "⚠️ Aucun e-mail expéditeur lié (configurable dans ⚙️ Options)"
-                : "📤 Expéditeur lié : " + senderEmail + (!senderAppPass.isEmpty() ? " (" + smtpHost + ":" + smtpPort + ")" : "");
+                ? "💡 Envoi via l'application Mail du téléphone (ou configurez l'envoi direct dans ⚙️ Options)"
+                : "📤 Expéditeur lié : " + senderEmail + (!senderAppPass.isEmpty() ? " (Envoi direct SMTP actif)" : " (Via application Mail)");
         senderInfoTv.setText(senderStatus);
         senderInfoTv.setTextSize(11);
         senderInfoTv.setTextColor(Color.parseColor("#38BDF8"));
         senderInfoTv.setPadding(0, dp(10), 0, dp(6));
         box.addView(senderInfoTv);
 
-        EditText emailInput = new EditText(this);
-        emailInput.setHint(tr("client_search_hint"));
+        EditText emailInput = createStyledInput(tr("client_search_hint"), "");
         emailInput.setInputType(InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
         emailInput.setSingleLine(true);
-        emailInput.setPadding(dp(12), dp(10), dp(12), dp(10));
         box.addView(emailInput);
 
-        TextView savedLabel = new TextView(this);
-        savedLabel.setText(tr("saved_clients_label"));
-        savedLabel.setTextSize(12);
-        savedLabel.setTypeface(null, Typeface.BOLD);
-        savedLabel.setPadding(0, dp(8), 0, dp(4));
+        TextView savedLabel = createSectionLabel(tr("saved_clients_label"));
         box.addView(savedLabel);
 
         LinearLayout clientsListContainer = new LinearLayout(this);
@@ -1888,27 +2173,26 @@ public class MainActivity extends AppCompatActivity {
                         LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                         rowLp.setMargins(0, dp(2), 0, dp(2));
 
-                        Button selectBtn = new Button(MainActivity.this);
-                        selectBtn.setText("👤 " + savedMail);
-                        selectBtn.setAllCaps(false);
+                        Button selectBtn = createStudioButton("👤 " + savedMail, Color.parseColor("#1E293B"), Color.parseColor("#0F172A"), Color.parseColor("#334155"));
                         selectBtn.setTextSize(12);
                         selectBtn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-                        selectBtn.setPadding(dp(10), dp(4), dp(10), dp(4));
                         selectBtn.setOnClickListener(v -> {
                             emailInput.setText(savedMail);
                             emailInput.setSelection(savedMail.length());
                         });
                         row.addView(selectBtn, new LinearLayout.LayoutParams(0, dp(36), 1f));
 
-                        Button delBtn = new Button(MainActivity.this);
-                        delBtn.setText("🗑️");
+                        Button delBtn = createStudioButton("🗑️", Color.parseColor("#7F1D1D"), Color.parseColor("#450A0A"), Color.parseColor("#F87171"));
                         delBtn.setTextSize(11);
+                        delBtn.setPadding(0, 0, 0, 0);
                         delBtn.setOnClickListener(v -> {
                             clientEmails.remove(savedMail);
                             saveData();
                             this.run();
                         });
-                        row.addView(delBtn, new LinearLayout.LayoutParams(dp(42), dp(36)));
+                        LinearLayout.LayoutParams dLp = new LinearLayout.LayoutParams(dp(40), dp(36));
+                        dLp.setMargins(dp(4), 0, 0, 0);
+                        row.addView(delBtn, dLp);
 
                         clientsListContainer.addView(row, rowLp);
                         shown++;
@@ -1928,42 +2212,36 @@ public class MainActivity extends AppCompatActivity {
         });
         refreshClientSuggestions.run();
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(tr("receipt_title"))
-                .setView(scroll)
-                .setPositiveButton(tr("send_email_btn"), null)
-                .setNeutralButton(tr("clear_receipt_btn"), (d, w) -> {
+        createStudioDialog(
+                tr("receipt_title"),
+                scroll,
+                tr("send_email_btn"),
+                () -> {
+                    String targetEmail = emailInput.getText().toString().trim();
+                    if (targetEmail.isEmpty() || !targetEmail.contains("@")) {
+                        Toast.makeText(MainActivity.this, tr("email_invalid"), Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (!clientEmails.contains(targetEmail)) {
+                        clientEmails.add(0, targetEmail);
+                    }
+                    archiveCurrentReceiptIfNotEmpty(discVal[0], discIsPct[0]);
+                    saveData();
+                    String subject = "Ticket de caisse - " + (shopName.isEmpty() ? "OptiStock" : shopName);
+                    String body = buildReceiptText(discVal[0], discIsPct[0]);
+                    dispatchReceiptEmail(targetEmail, subject, body);
+                },
+                tr("clear_receipt_btn"),
+                () -> {
                     archiveCurrentReceiptIfNotEmpty(discVal[0], discIsPct[0]);
                     currentReceipt.clear();
                     lastExitTotal = 0.0;
                     sessionExitTotal = 0.0;
                     saveData();
                     updateStats();
-                })
-                .setNegativeButton(tr("cancel"), null)
-                .create();
-
-        dialog.setOnShowListener(d -> {
-            Button sendBtn = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-            sendBtn.setOnClickListener(v -> {
-                String targetEmail = emailInput.getText().toString().trim();
-                if (targetEmail.isEmpty() || !targetEmail.contains("@")) {
-                    Toast.makeText(MainActivity.this, tr("email_invalid"), Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                if (!clientEmails.contains(targetEmail)) {
-                    clientEmails.add(0, targetEmail);
-                }
-                archiveCurrentReceiptIfNotEmpty(discVal[0], discIsPct[0]);
-                saveData();
-                String subject = "Ticket de caisse - " + (shopName.isEmpty() ? "OptiStock" : shopName);
-                String body = buildReceiptText(discVal[0], discIsPct[0]);
-                dialog.dismiss();
-                dispatchReceiptEmail(targetEmail, subject, body);
-            });
-        });
-
-        dialog.show();
+                },
+                tr("cancel")
+        ).show();
     }
 
     private void startSingleReceiptPdfExport() {
@@ -1988,7 +2266,7 @@ public class MainActivity extends AppCompatActivity {
             Canvas canvas = page.getCanvas();
 
             Bitmap userLogo = getUserCompanyLogoBitmap();
-            String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "ENTREPRISE";
+            String title = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
             paint.setTextSize(17f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); paint.setColor(Color.rgb(15, 23, 42));
 
             if (userLogo != null) {
@@ -2103,7 +2381,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Supporte à la fois le port 587 (STARTTLS) et le port 465 (SSL direct)
     private boolean sendSmtpEmail(String host, String portStr, String fromUser, String appPass, String toMail, String subject, String body) {
         try {
             int port = 587;
@@ -2190,6 +2467,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ==================== STOCKS, CATÉGORIES & OPTIONS STUDIO ====================
+
     private void showStockPopupMenu(View anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
         for (int i = 0; i < stocksList.size(); i++) {
@@ -2214,13 +2493,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showCreateStockDialog() {
-        EditText input = new EditText(this);
-        input.setHint(tr("new_stock_hint"));
-        input.setPadding(dp(16), dp(12), dp(16), dp(12));
-        new AlertDialog.Builder(this)
-                .setTitle(tr("new_stock_title"))
-                .setView(input)
-                .setPositiveButton(tr("save"), (d, w) -> {
+        EditText input = createStyledInput(tr("new_stock_hint"), "");
+        createStudioDialog(
+                tr("new_stock_title"),
+                input,
+                tr("save"),
+                () -> {
                     String name = input.getText().toString().trim();
                     if (!name.isEmpty()) {
                         if (!stocksList.contains(name)) stocksList.add(name);
@@ -2228,9 +2506,9 @@ public class MainActivity extends AppCompatActivity {
                         saveData();
                         applyThemeAndLang();
                     }
-                })
-                .setNegativeButton(tr("cancel"), null)
-                .show();
+                },
+                null, null, tr("cancel")
+        ).show();
     }
 
     private void deleteCurrentStock() {
@@ -2266,13 +2544,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showCreateCategoryDialog() {
-        EditText input = new EditText(this);
-        input.setHint(tr("new_cat_hint"));
-        input.setPadding(dp(16), dp(12), dp(16), dp(12));
-        new AlertDialog.Builder(this)
-                .setTitle("➕ " + tr("category_label"))
-                .setView(input)
-                .setPositiveButton(tr("save"), (d, w) -> {
+        EditText input = createStyledInput(tr("new_cat_hint"), "");
+        createStudioDialog(
+                "➕ " + tr("category_label"),
+                input,
+                tr("save"),
+                () -> {
                     String cat = input.getText().toString().trim();
                     if (!cat.isEmpty() && !categoriesList.contains(cat)) {
                         categoriesList.add(cat);
@@ -2280,27 +2557,24 @@ public class MainActivity extends AppCompatActivity {
                         saveData();
                         applyThemeAndLang();
                     }
-                })
-                .setNegativeButton(tr("cancel"), null)
-                .show();
+                },
+                null, null, tr("cancel")
+        ).show();
     }
 
     private void showOptionsDialog() {
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(16), dp(20), dp(10));
         scroll.addView(box);
 
-        TextView langLabel = new TextView(this);
-        langLabel.setText(tr("opt_lang"));
-        langLabel.setTypeface(null, Typeface.BOLD);
-        box.addView(langLabel);
+        box.addView(createSectionLabel(tr("opt_lang")));
 
         Spinner langSpinner = new Spinner(this);
         String[] langLabels = {tr("lang_sys"), "🇫🇷 Français", "🇬🇧 English", "🇪🇸 Español"};
         String[] langCodes = {"SYS", "FR", "EN", "ES"};
         langSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, langLabels));
+        langSpinner.setBackground(createRoundedBg(Color.parseColor("#FFFFFF"), dp(10)));
         int curIdx = 0;
         for (int i = 0; i < langCodes.length; i++) if (langCodes[i].equals(langPref)) curIdx = i;
         langSpinner.setSelection(curIdx);
@@ -2308,50 +2582,37 @@ public class MainActivity extends AppCompatActivity {
 
         Switch darkSwitch = new Switch(this);
         darkSwitch.setText(tr("opt_dark"));
+        darkSwitch.setTextColor(Color.WHITE);
         darkSwitch.setChecked(isDarkMode);
-        darkSwitch.setPadding(0, dp(14), 0, dp(8));
+        darkSwitch.setPadding(0, dp(12), 0, dp(6));
         box.addView(darkSwitch);
 
         Switch scannerSwitch = new Switch(this);
         scannerSwitch.setText(tr("opt_scanner"));
+        scannerSwitch.setTextColor(Color.WHITE);
         scannerSwitch.setChecked(useScanner);
-        scannerSwitch.setPadding(0, dp(6), 0, dp(8));
+        scannerSwitch.setPadding(0, dp(6), 0, dp(6));
         box.addView(scannerSwitch);
 
         Switch priceSwitch = new Switch(this);
         priceSwitch.setText(tr("opt_prices"));
+        priceSwitch.setTextColor(Color.WHITE);
         priceSwitch.setChecked(usePrices);
-        priceSwitch.setPadding(0, dp(6), 0, dp(12));
+        priceSwitch.setPadding(0, dp(6), 0, dp(8));
         box.addView(priceSwitch);
 
-        TextView threshTv = new TextView(this);
-        threshTv.setText(tr("opt_low_thresh"));
-        threshTv.setTypeface(null, Typeface.BOLD);
-        box.addView(threshTv);
-
-        EditText threshInput = new EditText(this);
-        threshInput.setText(String.valueOf(lowStockThreshold));
+        box.addView(createSectionLabel(tr("opt_low_thresh")));
+        EditText threshInput = createStyledInput("3", String.valueOf(lowStockThreshold));
         threshInput.setInputType(InputType.TYPE_CLASS_NUMBER);
         threshInput.setSingleLine(true);
         box.addView(threshInput);
 
-        TextView shopTv = new TextView(this);
-        shopTv.setText(tr("opt_shop_name"));
-        shopTv.setTypeface(null, Typeface.BOLD);
-        shopTv.setPadding(0, dp(10), 0, 0);
-        box.addView(shopTv);
-
-        EditText shopInput = new EditText(this);
-        shopInput.setText(shopName);
-        shopInput.setHint("Ex: Mon Entreprise");
+        box.addView(createSectionLabel(tr("opt_shop_name")));
+        EditText shopInput = createStyledInput("Ex: Mon Entreprise", shopName);
         shopInput.setSingleLine(true);
         box.addView(shopInput);
 
-        TextView logoSecTv = new TextView(this);
-        logoSecTv.setText(tr("opt_custom_logo"));
-        logoSecTv.setTypeface(null, Typeface.BOLD);
-        logoSecTv.setPadding(0, dp(12), 0, dp(6));
-        box.addView(logoSecTv);
+        box.addView(createSectionLabel(tr("opt_custom_logo")));
 
         LinearLayout logoPickRow = new LinearLayout(this);
         logoPickRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -2360,7 +2621,7 @@ public class MainActivity extends AppCompatActivity {
         tempCustomLogoPath = customLogoPath;
         optionsLogoPreview = new ImageView(this);
         optionsLogoPreview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        optionsLogoPreview.setBackground(createRoundedBg(Color.parseColor("#1E293B"), dp(10), dp(1), Color.parseColor("#38BDF8")));
+        optionsLogoPreview.setBackground(createRoundedBg(Color.parseColor("#091326"), dp(10), dp(1), Color.parseColor("#38BDF8")));
         if (!tempCustomLogoPath.isEmpty()) {
             Bitmap b = loadBitmapFromInternalStorage(tempCustomLogoPath);
             if (b != null) optionsLogoPreview.setImageBitmap(b);
@@ -2372,9 +2633,7 @@ public class MainActivity extends AppCompatActivity {
         oImgLp.setMargins(0, 0, dp(12), 0);
         logoPickRow.addView(optionsLogoPreview, oImgLp);
 
-        Button btnPickLogo = new Button(this);
-        btnPickLogo.setText(tr("pick_logo_btn"));
-        btnPickLogo.setAllCaps(false);
+        Button btnPickLogo = createStudioButton(tr("pick_logo_btn"), Color.parseColor("#0284C7"), Color.parseColor("#0369A1"), Color.parseColor("#7DD3FC"));
         btnPickLogo.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
             startActivityForResult(intent, REQ_PICK_CUSTOM_LOGO);
@@ -2382,72 +2641,76 @@ public class MainActivity extends AppCompatActivity {
         logoPickRow.addView(btnPickLogo, new LinearLayout.LayoutParams(0, dp(42), 1f));
         box.addView(logoPickRow);
 
-        TextView smtpSecTv = new TextView(this);
-        smtpSecTv.setText("Configuration d'envoi E-mail direct (SMTP)");
-        smtpSecTv.setTypeface(null, Typeface.BOLD);
-        smtpSecTv.setTextColor(Color.parseColor("#38BDF8"));
-        smtpSecTv.setPadding(0, dp(16), 0, dp(6));
-        box.addView(smtpSecTv);
+        // SECTION IMPORT RAPIDE DE CATALOGUE CSV / EXCEL
+        box.addView(createSectionLabel(tr("csv_import_section")));
 
-        TextView hostTv = new TextView(this);
-        hostTv.setText(tr("opt_smtp_host"));
-        box.addView(hostTv);
-        EditText hostInput = new EditText(this);
-        hostInput.setText(smtpHost);
+        Button btnImportCsv = createStudioButton(tr("csv_import_btn"), Color.parseColor("#10B981"), Color.parseColor("#047857"), Color.parseColor("#6EE7B7"));
+        btnImportCsv.setOnClickListener(v -> startCatalogCsvImport());
+        LinearLayout.LayoutParams impCsvLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        impCsvLp.setMargins(0, 0, 0, dp(6));
+        box.addView(btnImportCsv, impCsvLp);
+
+        Button btnSampleCsv = createStudioButton(tr("csv_sample_btn"), Color.parseColor("#1E293B"), Color.parseColor("#0F172A"), Color.parseColor("#38BDF8"));
+        btnSampleCsv.setOnClickListener(v -> startSampleCsvExport());
+        LinearLayout.LayoutParams smpCsvLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+        box.addView(btnSampleCsv, smpCsvLp);
+
+        // SECTION SMTP AVEC NOTE EXPLICATIVE RASSURANTE
+        box.addView(createSectionLabel("📤 Configuration d'envoi E-mail direct (SMTP)"));
+
+        TextView smtpHelpTv = new TextView(this);
+        smtpHelpTv.setText(tr("smtp_help_note"));
+        smtpHelpTv.setTextColor(Color.parseColor("#CBD5E1"));
+        smtpHelpTv.setTextSize(11.5f);
+        smtpHelpTv.setPadding(dp(10), dp(8), dp(10), dp(8));
+        smtpHelpTv.setBackground(createRoundedBg(Color.parseColor("#112240"), dp(10), dp(1), Color.parseColor("#0284C7")));
+        LinearLayout.LayoutParams helpLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        helpLp.setMargins(0, 0, 0, dp(8));
+        box.addView(smtpHelpTv, helpLp);
+
+        EditText hostInput = createStyledInput(tr("opt_smtp_host"), smtpHost);
         hostInput.setSingleLine(true);
-        box.addView(hostInput);
+        LinearLayout.LayoutParams inLp1 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        inLp1.setMargins(0, 0, 0, dp(6));
+        box.addView(hostInput, inLp1);
 
-        TextView portTv = new TextView(this);
-        portTv.setText(tr("opt_smtp_port"));
-        box.addView(portTv);
-        EditText portInput = new EditText(this);
-        portInput.setText(smtpPort);
+        EditText portInput = createStyledInput(tr("opt_smtp_port"), smtpPort);
         portInput.setInputType(InputType.TYPE_CLASS_NUMBER);
         portInput.setSingleLine(true);
-        box.addView(portInput);
+        LinearLayout.LayoutParams inLp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        inLp2.setMargins(0, 0, 0, dp(6));
+        box.addView(portInput, inLp2);
 
-        TextView senderTv = new TextView(this);
-        senderTv.setText(tr("opt_sender_email"));
-        box.addView(senderTv);
-        EditText senderInput = new EditText(this);
-        senderInput.setText(senderEmail);
-        senderInput.setHint("exemple@gmail.com");
+        EditText senderInput = createStyledInput("exemple@gmail.com", senderEmail);
         senderInput.setInputType(InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
         senderInput.setSingleLine(true);
-        box.addView(senderInput);
+        LinearLayout.LayoutParams inLp3 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        inLp3.setMargins(0, 0, 0, dp(6));
+        box.addView(senderInput, inLp3);
 
-        TextView passTv = new TextView(this);
-        passTv.setText(tr("opt_sender_pass"));
-        box.addView(passTv);
-        EditText passInput = new EditText(this);
-        passInput.setText(senderAppPass);
-        passInput.setHint("xxxx xxxx xxxx xxxx");
+        EditText passInput = createStyledInput("Mot de passe d'application SMTP (Optionnel)", senderAppPass);
         passInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         passInput.setSingleLine(true);
         box.addView(passInput);
 
-        TextView backupTv = new TextView(this);
-        backupTv.setText(tr("backup_section"));
-        backupTv.setTypeface(null, Typeface.BOLD);
-        backupTv.setPadding(0, dp(16), 0, dp(6));
-        box.addView(backupTv);
+        box.addView(createSectionLabel(tr("backup_section")));
 
-        Button btnExportBackup = new Button(this);
-        btnExportBackup.setText(tr("backup_export_btn"));
-        btnExportBackup.setAllCaps(false);
+        Button btnExportBackup = createStudioButton(tr("backup_export_btn"), Color.parseColor("#1E293B"), Color.parseColor("#0F172A"), Color.parseColor("#38BDF8"));
         btnExportBackup.setOnClickListener(v -> startBackupExport());
-        box.addView(btnExportBackup);
+        LinearLayout.LayoutParams bkpLp1 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        bkpLp1.setMargins(0, 0, 0, dp(6));
+        box.addView(btnExportBackup, bkpLp1);
 
-        Button btnImportBackup = new Button(this);
-        btnImportBackup.setText(tr("backup_import_btn"));
-        btnImportBackup.setAllCaps(false);
+        Button btnImportBackup = createStudioButton(tr("backup_import_btn"), Color.parseColor("#1E293B"), Color.parseColor("#0F172A"), Color.parseColor("#38BDF8"));
         btnImportBackup.setOnClickListener(v -> startBackupImport());
-        box.addView(btnImportBackup);
+        LinearLayout.LayoutParams bkpLp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        box.addView(btnImportBackup, bkpLp2);
 
-        new AlertDialog.Builder(this)
-                .setTitle(tr("options_title"))
-                .setView(scroll)
-                .setPositiveButton(tr("save"), (d, w) -> {
+        createStudioDialog(
+                tr("options_title"),
+                scroll,
+                tr("save"),
+                () -> {
                     langPref = langCodes[langSpinner.getSelectedItemPosition()];
                     isDarkMode = darkSwitch.isChecked();
                     useScanner = scannerSwitch.isChecked();
@@ -2477,9 +2740,9 @@ public class MainActivity extends AppCompatActivity {
                             .putString("senderAppPass", senderAppPass)
                             .apply();
                     applyThemeAndLang();
-                })
-                .setNegativeButton(tr("cancel"), null)
-                .show();
+                },
+                null, null, tr("cancel")
+        ).show();
     }
 
     private void startBackupExport() {
@@ -2494,7 +2757,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             saveData();
             JSONObject backup = new JSONObject();
-            backup.put("version", 4);
+            backup.put("version", 5);
             backup.put("exportedAt", System.currentTimeMillis());
             backup.put("inventory_json", prefs.getString("inventory_json", "[]"));
             backup.put("stocks_json", prefs.getString("stocks_json", "[]"));
@@ -2605,6 +2868,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ==================== SCAN & TRANSACTIONS PRODUITS STUDIO ====================
+
     private void handleEntryAction() {
         if (!isAccessAllowed()) { showPaywallUI(); return; }
         if (useScanner) {
@@ -2655,18 +2920,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showManualBarcodeDialog(boolean isEntry) {
-        EditText input = new EditText(this);
-        input.setHint("Ex: 3017620422003");
+        EditText input = createStyledInput("Ex: 3017620422003", "");
         input.setInputType(InputType.TYPE_CLASS_TEXT);
-        new AlertDialog.Builder(this)
-                .setTitle(tr("manual_code"))
-                .setView(input)
-                .setPositiveButton(tr("save"), (d, w) -> {
+        createStudioDialog(
+                tr("manual_code"),
+                input,
+                tr("save"),
+                () -> {
                     String code = input.getText().toString().trim();
                     if (!code.isEmpty()) handleScannedBarcode(code, isEntry);
-                })
-                .setNegativeButton(tr("cancel"), null)
-                .show();
+                },
+                null, null, tr("cancel")
+        ).show();
     }
 
     private void handleScannedBarcode(String barcode, boolean isEntry) {
@@ -2777,7 +3042,6 @@ public class MainActivity extends AppCompatActivity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(14), dp(20), dp(10));
         scroll.addView(box);
 
         AlertDialog[] dialogHolder = new AlertDialog[1];
@@ -2785,15 +3049,20 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout photoRow = new LinearLayout(this);
         photoRow.setOrientation(LinearLayout.HORIZONTAL);
         photoRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams pRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pRowLp.setMargins(0, 0, 0, dp(10));
 
         currentPhotoPreview = new ImageView(this);
         currentPhotoPreview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        currentPhotoPreview.setBackground(createRoundedBg(Color.parseColor("#CBD5E1"), dp(10)));
+        currentPhotoPreview.setBackground(createRoundedBg(Color.parseColor("#091326"), dp(12), dp(1), Color.parseColor("#38BDF8")));
         if (!tempPhotoPath.isEmpty()) {
             Bitmap b = loadBitmapFromInternalStorage(tempPhotoPath);
             if (b != null) currentPhotoPreview.setImageBitmap(b);
+            else loadAppLogoInto(currentPhotoPreview);
+        } else {
+            loadAppLogoInto(currentPhotoPreview);
         }
-        LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(76), dp(76));
+        LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(74), dp(74));
         imgLp.setMargins(0, 0, dp(14), 0);
         photoRow.addView(currentPhotoPreview, imgLp);
 
@@ -2802,68 +3071,61 @@ public class MainActivity extends AppCompatActivity {
         TextView codeTv = new TextView(this);
         String dispCode = (product.barcode != null && !product.barcode.isEmpty()) ? product.barcode : "Auto";
         codeTv.setText("🏷️ " + dispCode + "\n📦 " + product.stockName + " (" + tr("current_stock") + product.quantity + ")");
+        codeTv.setTextColor(Color.parseColor("#CBD5E1"));
         codeTv.setTextSize(12);
+        codeTv.setPadding(0, 0, 0, dp(6));
         codeAndCam.addView(codeTv);
 
         LinearLayout camAndDelRow = new LinearLayout(this);
         camAndDelRow.setOrientation(LinearLayout.HORIZONTAL);
 
-        Button btnCam = new Button(this);
-        btnCam.setText(tr("photo_btn"));
-        btnCam.setAllCaps(false);
-        btnCam.setTextSize(12);
+        Button btnCam = createStudioButton(tr("photo_btn"), Color.parseColor("#0284C7"), Color.parseColor("#0369A1"), Color.parseColor("#7DD3FC"));
+        btnCam.setTextSize(11.5f);
         btnCam.setOnClickListener(v -> {
             try { startActivityForResult(new Intent(MediaStore.ACTION_IMAGE_CAPTURE), REQ_TAKE_PHOTO); } catch (Exception ignored) {}
         });
-        camAndDelRow.addView(btnCam);
+        LinearLayout.LayoutParams camLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+        camLp.setMargins(0, 0, dp(6), 0);
+        camAndDelRow.addView(btnCam, camLp);
 
         if (!isNew) {
-            Button btnDel = new Button(this);
-            btnDel.setText(tr("delete"));
-            btnDel.setAllCaps(false);
-            btnDel.setTextSize(12);
-            btnDel.setTextColor(Color.parseColor("#EF4444"));
+            Button btnDel = createStudioButton(tr("delete"), Color.parseColor("#7F1D1D"), Color.parseColor("#450A0A"), Color.parseColor("#F87171"));
+            btnDel.setTextSize(11.5f);
             btnDel.setOnClickListener(v -> {
                 inventory.remove(product);
                 saveData();
                 filterList();
                 if (dialogHolder[0] != null) dialogHolder[0].dismiss();
             });
-            camAndDelRow.addView(btnDel);
+            camAndDelRow.addView(btnDel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)));
         }
 
         codeAndCam.addView(camAndDelRow);
         photoRow.addView(codeAndCam);
-        box.addView(photoRow);
+        box.addView(photoRow, pRowLp);
 
-        EditText nameInput = new EditText(this);
-        nameInput.setHint(tr("prod_name"));
-        nameInput.setText(product.name);
-        box.addView(nameInput);
+        EditText nameInput = createStyledInput(tr("prod_name"), product.name);
+        LinearLayout.LayoutParams nLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nLp.setMargins(0, 0, 0, dp(6));
+        box.addView(nameInput, nLp);
 
-        EditText codeInput = new EditText(this);
-        codeInput.setHint(tr("code_opt_hint"));
-        codeInput.setText(product.barcode);
+        EditText codeInput = createStyledInput(tr("code_opt_hint"), product.barcode);
         codeInput.setSingleLine(true);
         if (isNew && (product.barcode == null || product.barcode.isEmpty())) {
-            box.addView(codeInput);
+            box.addView(codeInput, nLp);
         }
 
-        TextView catTv = new TextView(this);
-        catTv.setText(tr("category_label"));
-        catTv.setTypeface(null, Typeface.BOLD);
-        catTv.setPadding(0, dp(8), 0, dp(2));
-        box.addView(catTv);
+        box.addView(createSectionLabel(tr("category_label")));
 
         Spinner catSpinner = new Spinner(this);
         List<String> spinnerCats = new ArrayList<>(categoriesList);
         spinnerCats.add(tr("new_cat_opt"));
         catSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, spinnerCats));
+        catSpinner.setBackground(createRoundedBg(Color.parseColor("#FFFFFF"), dp(10)));
         int catIndex = categoriesList.indexOf(product.category);
         if (catIndex >= 0) catSpinner.setSelection(catIndex);
 
-        EditText newCatInput = new EditText(this);
-        newCatInput.setHint(tr("new_cat_hint"));
+        EditText newCatInput = createStyledInput(tr("new_cat_hint"), "");
         newCatInput.setVisibility(View.GONE);
 
         catSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -2875,43 +3137,34 @@ public class MainActivity extends AppCompatActivity {
         box.addView(catSpinner);
         box.addView(newCatInput);
 
-        EditText priceInput = new EditText(this);
+        EditText priceInput = createStyledInput("0.00", product.price > 0 ? String.valueOf(product.price) : "");
         priceInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        priceInput.setText(product.price > 0 ? String.valueOf(product.price) : "");
-        priceInput.setHint("0.00");
         if (usePrices) {
-            TextView priceTv = new TextView(this);
-            priceTv.setText(tr("price_label"));
-            priceTv.setTypeface(null, Typeface.BOLD);
-            priceTv.setPadding(0, dp(8), 0, dp(2));
-            box.addView(priceTv);
+            box.addView(createSectionLabel(tr("price_label")));
             box.addView(priceInput);
         }
 
-        TextView qtyLabel = new TextView(this);
-        qtyLabel.setText(tr("qty_label"));
-        qtyLabel.setTypeface(null, Typeface.BOLD);
-        qtyLabel.setPadding(0, dp(10), 0, dp(2));
-        box.addView(qtyLabel);
+        box.addView(createSectionLabel(tr("qty_label")));
 
-        EditText qtyInput = new EditText(this);
+        EditText qtyInput = createStyledInput("1", "1");
         qtyInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-        qtyInput.setText("1");
         qtyInput.setTextSize(20);
         qtyInput.setTypeface(null, Typeface.BOLD);
         qtyInput.setGravity(Gravity.CENTER);
         qtyInput.selectAll();
-        box.addView(qtyInput);
+        LinearLayout.LayoutParams qInLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        qInLp.setMargins(0, 0, 0, dp(8));
+        box.addView(qtyInput, qInLp);
 
         TextView liveExitTotalTv = new TextView(this);
-        liveExitTotalTv.setTextSize(15);
+        liveExitTotalTv.setTextSize(14);
         liveExitTotalTv.setTypeface(null, Typeface.BOLD);
         liveExitTotalTv.setTextColor(Color.WHITE);
         liveExitTotalTv.setGravity(Gravity.CENTER);
         liveExitTotalTv.setPadding(dp(12), dp(10), dp(12), dp(10));
-        liveExitTotalTv.setBackground(createRoundedBg(Color.parseColor("#DC2626"), dp(10)));
+        liveExitTotalTv.setBackground(createGradientBg(Color.parseColor("#DC2626"), Color.parseColor("#991B1B"), dp(12), dp(1), Color.parseColor("#FCA5A5")));
         LinearLayout.LayoutParams totalLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        totalLp.setMargins(0, dp(10), 0, dp(4));
+        totalLp.setMargins(0, dp(8), 0, dp(2));
 
         Runnable updateLiveTotal = () -> {
             if (!usePrices || (isEntry && !fromListClick)) {
@@ -2930,16 +3183,18 @@ public class MainActivity extends AppCompatActivity {
         int[] steps = {-1, 1, 5, 10, 50};
         for (int i = 0; i < steps.length; i++) {
             final int step = steps[i];
-            Button b = new Button(this);
-            b.setText(step > 0 ? "+" + step : String.valueOf(step));
+            Button b = createStudioButton(step > 0 ? "+" + step : String.valueOf(step), Color.parseColor("#1E293B"), Color.parseColor("#0F172A"), Color.parseColor("#38BDF8"));
             b.setTextSize(12);
+            b.setPadding(0, 0, 0, 0);
             b.setOnClickListener(v -> {
                 int cur = 1;
                 try { cur = Integer.parseInt(qtyInput.getText().toString().trim()); } catch (Exception ignored) {}
                 qtyInput.setText(String.valueOf(Math.max(1, cur + step)));
                 updateLiveTotal.run();
             });
-            quickBtns.addView(b, new LinearLayout.LayoutParams(0, dp(38), 1f));
+            LinearLayout.LayoutParams stepLp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+            stepLp.setMargins(dp(2), 0, dp(2), 0);
+            quickBtns.addView(b, stepLp);
         }
         box.addView(quickBtns);
         box.addView(liveExitTotalTv, totalLp);
@@ -3029,34 +3284,31 @@ public class MainActivity extends AppCompatActivity {
         String dialogTitle;
         if (fromListClick) {
             dialogTitle = "📦 " + (product.name != null && !product.name.isEmpty() ? product.name : tr("exit_title"));
+            dialogHolder[0] = createStudioDialog(
+                    dialogTitle,
+                    scroll,
+                    tr("action_exit"),
+                    () -> { actionMode[0] = false; commitTransaction.run(); },
+                    tr("action_entry"),
+                    () -> { actionMode[0] = true; commitTransaction.run(); },
+                    tr("cancel")
+            );
         } else {
             dialogTitle = isEntry ? "🟢 " + tr("entry_title") : "🔴 " + tr("exit_title");
+            dialogHolder[0] = createStudioDialog(
+                    dialogTitle,
+                    scroll,
+                    isEntry ? tr("save") : tr("action_exit"),
+                    () -> { actionMode[0] = isEntry; commitTransaction.run(); },
+                    null, null,
+                    tr("cancel")
+            );
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle(dialogTitle)
-                .setView(scroll)
-                .setNegativeButton(tr("cancel"), null);
-
-        if (fromListClick) {
-            builder.setPositiveButton(tr("action_exit"), (d, w) -> {
-                actionMode[0] = false;
-                commitTransaction.run();
-            });
-            builder.setNeutralButton(tr("action_entry"), (d, w) -> {
-                actionMode[0] = true;
-                commitTransaction.run();
-            });
-        } else {
-            builder.setPositiveButton(isEntry ? tr("save") : tr("action_exit"), (d, w) -> {
-                actionMode[0] = isEntry;
-                commitTransaction.run();
-            });
-        }
-
-        dialogHolder[0] = builder.create();
         dialogHolder[0].show();
     }
+
+    // ==================== CARTES PRODUITS STUDIO ====================
 
     private class InventoryAdapter extends BaseAdapter {
         @Override public int getCount() { return filteredInventory.size(); }
@@ -3066,20 +3318,22 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
             Product p = filteredInventory.get(position);
-            int cardColor = isDarkMode ? Color.parseColor("#0F172A") : Color.parseColor("#FFFFFF");
+            int c1 = isDarkMode ? Color.parseColor("#112240") : Color.parseColor("#FFFFFF");
+            int c2 = isDarkMode ? Color.parseColor("#0A1526") : Color.parseColor("#F8FAFC");
             int borderColor = isDarkMode ? Color.parseColor("#1E3A8A") : Color.parseColor("#CBD5E1");
             int textColor = isDarkMode ? Color.parseColor("#F8FAFC") : Color.parseColor("#0F172A");
-            int subTextColor = isDarkMode ? Color.parseColor("#94A3B8") : Color.parseColor("#64748B");
+            int subTextColor = isDarkMode ? Color.parseColor("#94A3B8") : Color.parseColor("#475569");
 
             LinearLayout card = new LinearLayout(MainActivity.this);
             card.setOrientation(LinearLayout.HORIZONTAL);
             card.setGravity(Gravity.CENTER_VERTICAL);
-            card.setPadding(dp(12), dp(10), dp(12), dp(10));
-            card.setBackground(createRoundedBg(cardColor, dp(14), dp(1), borderColor));
+            card.setPadding(dp(12), dp(11), dp(12), dp(11));
+            card.setBackground(createGradientBg(c1, c2, dp(16), dp(1), borderColor));
+            elevate(card, 4);
 
             ImageView img = new ImageView(MainActivity.this);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            img.setBackground(createRoundedBg(Color.parseColor("#1E293B"), dp(10)));
+            img.setBackground(createRoundedBg(Color.parseColor("#091326"), dp(12), dp(1), Color.parseColor("#0284C7")));
             if (p.imagePath != null && !p.imagePath.isEmpty()) {
                 Bitmap b = loadBitmapFromInternalStorage(p.imagePath);
                 if (b != null) img.setImageBitmap(b);
@@ -3087,7 +3341,7 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 loadAppLogoInto(img);
             }
-            LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(54), dp(54));
+            LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(56), dp(56));
             imgLp.setMargins(0, 0, dp(12), 0);
             card.addView(img, imgLp);
 
@@ -3096,7 +3350,7 @@ public class MainActivity extends AppCompatActivity {
 
             TextView nameTv = new TextView(MainActivity.this);
             nameTv.setText(p.name);
-            nameTv.setTextSize(15);
+            nameTv.setTextSize(15.5f);
             nameTv.setTypeface(null, Typeface.BOLD);
             nameTv.setTextColor(textColor);
 
@@ -3117,8 +3371,15 @@ public class MainActivity extends AppCompatActivity {
             badge.setTypeface(null, Typeface.BOLD);
             badge.setTextColor(Color.WHITE);
             badge.setGravity(Gravity.CENTER);
-            int badgeColor = p.quantity == 0 ? Color.parseColor("#EF4444") : (p.quantity <= lowStockThreshold ? Color.parseColor("#F59E0B") : Color.parseColor("#10B981"));
-            badge.setBackground(createRoundedBg(badgeColor, dp(10)));
+            int bStart, bEnd, bStroke;
+            if (p.quantity == 0) {
+                bStart = Color.parseColor("#EF4444"); bEnd = Color.parseColor("#B91C1C"); bStroke = Color.parseColor("#FCA5A5");
+            } else if (p.quantity <= lowStockThreshold) {
+                bStart = Color.parseColor("#F59E0B"); bEnd = Color.parseColor("#B45309"); bStroke = Color.parseColor("#FDE68A");
+            } else {
+                bStart = Color.parseColor("#10B981"); bEnd = Color.parseColor("#047857"); bStroke = Color.parseColor("#6EE7B7");
+            }
+            badge.setBackground(createGradientBg(bStart, bEnd, dp(12), dp(1), bStroke));
             badge.setPadding(dp(14), dp(8), dp(14), dp(8));
             card.addView(badge);
 
@@ -3182,6 +3443,10 @@ public class MainActivity extends AppCompatActivity {
             restoreBackupFromUri(data.getData());
         } else if (requestCode == REQ_EXPORT_HISTORY_CSV && data.getData() != null) {
             generateHistoryCsvToUri(data.getData());
+        } else if (requestCode == REQ_IMPORT_CATALOG_CSV && data.getData() != null) {
+            importCatalogFromCsvUri(data.getData());
+        } else if (requestCode == REQ_EXPORT_SAMPLE_CSV && data.getData() != null) {
+            generateSampleCsvToUri(data.getData());
         } else if (requestCode == REQ_PICK_CUSTOM_LOGO && data.getData() != null) {
             try {
                 InputStream is = getContentResolver().openInputStream(data.getData());
@@ -3457,22 +3722,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
     }
 
-    private GradientDrawable createRoundedBg(int color, int radiusPx) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(color);
-        gd.setCornerRadius(radiusPx);
-        return gd;
-    }
-
-    private GradientDrawable createRoundedBg(int color, int radiusPx, int strokeWidthPx, int strokeColor) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(color);
-        gd.setCornerRadius(radiusPx);
-        gd.setStroke(strokeWidthPx, strokeColor);
-        return gd;
-    }
-
-    private int dp(int val) {
+    private int dp(float val) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, val, getResources().getDisplayMetrics());
     }
 
@@ -3480,7 +3730,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
             if (v != null) {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     v.vibrate(VibrationEffect.createOneShot(70, VibrationEffect.DEFAULT_AMPLITUDE));
                 } else {
                     v.vibrate(70L);
