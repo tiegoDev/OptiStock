@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -59,16 +60,6 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.billingclient.api.AcknowledgePurchaseParams;
-import com.android.billingclient.api.BillingClient;
-import com.android.billingclient.api.BillingClientStateListener;
-import com.android.billingclient.api.BillingFlowParams;
-import com.android.billingclient.api.BillingResult;
-import com.android.billingclient.api.ProductDetails;
-import com.android.billingclient.api.Purchase;
-import com.android.billingclient.api.PurchasesUpdatedListener;
-import com.android.billingclient.api.QueryProductDetailsParams;
-import com.android.billingclient.api.QueryPurchasesParams;
 import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
@@ -94,7 +85,6 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -177,11 +167,10 @@ public class MainActivity extends AppCompatActivity {
     private double lastExitTotal = 0.0;
     private double sessionExitTotal = 0.0;
 
-    private static final String SKU_PRO_LIFETIME = "optistock_lifetime_pro";
-    private static final long TRIAL_DURATION_MS = 7L * 24L * 60L * 60L * 1000L;
-    private BillingClient billingClient;
-    private ProductDetails proProductDetails;
-    private String formattedLaunchPrice = "4,99 €";
+    // Configuration des 2 éditions : Essai gratuit de 14 jours vs Version Pro
+    private static final String PRO_PACKAGE_NAME = "com.godev.optistock.pro";
+    private static final String TRIAL_PROVIDER_URI = "content://com.godev.optistock.trial.provider/backup";
+    private static final long TRIAL_DURATION_MS = 14L * 24L * 60L * 60L * 1000L;
 
     private static final int REQ_EXPORT_STOCKS_PDF = 1001;
     private static final int REQ_TAKE_PHOTO = 1002;
@@ -208,13 +197,19 @@ public class MainActivity extends AppCompatActivity {
     private TextView titleText, subtitleText, trialBannerText, statsRefsValue, statsRefsLabel, statsUnitsValue, statsUnitsLabel, statsLowValue, statsLowLabel, emptyText, exitTotalText;
     private ImageView headerLogo, emptyLogo;
     private EditText searchInput;
-    private Button btnTestSim, btnEntry, btnExit, btnHistory, btnExport, btnOptions, btnStockSelector, btnCatFilter, btnOpenReceipt;
+    private Button btnEntry, btnExit, btnHistory, btnExport, btnOptions, btnStockSelector, btnCatFilter, btnOpenReceipt;
     private ListView listView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("OptiStockPrefs", MODE_PRIVATE);
+
+        // Si on est sur la version Pro, on tente automatiquement d'aspirer toutes les données de la version d'essai
+        if (BuildConfig.IS_PRO_VERSION) {
+            tryAutoMigrateFromTrialVersion();
+        }
+
         isDarkMode = prefs.getBoolean("darkMode", true);
         usePrices = prefs.getBoolean("usePrices", false);
         useScanner = prefs.getBoolean("useScanner", true);
@@ -229,9 +224,37 @@ public class MainActivity extends AppCompatActivity {
 
         styleSystemBars();
         initTrialTimestamp();
-        initBilling();
         loadData();
         showSplashScreen();
+    }
+
+    // Migration automatique et silencieuse depuis la version d'essai (14 jours) vers la version Pro
+    private void tryAutoMigrateFromTrialVersion() {
+        if (prefs.getBoolean("autoMigratedFromTrial", false)) return;
+        try {
+            Cursor cursor = getContentResolver().query(Uri.parse(TRIAL_PROVIDER_URI), null, null, null, null);
+            if (cursor != null) {
+                if (cursor.moveToFirst()) {
+                    String payload = cursor.getString(0);
+                    if (payload != null && !payload.isEmpty()) {
+                        JSONObject backup = new JSONObject(payload);
+                        String invStr = backup.optString("inventory_json", "[]");
+                        String savedShop = backup.optString("shopName", "");
+                        // On applique la migration si la version d'essai contient des données ou une config
+                        if (!invStr.equals("[]") || !savedShop.isEmpty() || !backup.optString("clients_json", "[]").equals("[]")) {
+                            applyBackupJsonObject(backup);
+                            prefs.edit().putBoolean("autoMigratedFromTrial", true).apply();
+                            mainHandler.postDelayed(() -> Toast.makeText(
+                                    MainActivity.this,
+                                    "✅ Toutes vos données et photos ont été transférées automatiquement depuis la version d'essai !",
+                                    Toast.LENGTH_LONG
+                            ).show(), 3600);
+                        }
+                    }
+                }
+                cursor.close();
+            }
+        } catch (Exception ignored) {}
     }
 
     private void styleSystemBars() {
@@ -258,10 +281,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean isProUnlocked() {
-        return prefs.getBoolean("isProUnlocked", false) || prefs.getBoolean("devBypassPro", false);
+        return BuildConfig.IS_PRO_VERSION;
     }
 
     private int getRemainingTrialDays() {
+        if (BuildConfig.IS_PRO_VERSION) return 999;
         long start = prefs.getLong("trialStartMs", System.currentTimeMillis());
         long elapsed = System.currentTimeMillis() - start;
         if (elapsed >= TRIAL_DURATION_MS) return 0;
@@ -273,110 +297,22 @@ public class MainActivity extends AppCompatActivity {
         return isProUnlocked() || getRemainingTrialDays() > 0;
     }
 
-    private void initBilling() {
-        PurchasesUpdatedListener listener = (billingResult, purchases) -> {
-            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && purchases != null) {
-                for (Purchase purchase : purchases) {
-                    handlePurchase(purchase);
-                }
-            }
-        };
-
-        billingClient = BillingClient.newBuilder(this)
-                .setListener(listener)
-                .enablePendingPurchases()
-                .build();
-
-        billingClient.startConnection(new BillingClientStateListener() {
-            @Override
-            public void onBillingSetupFinished(BillingResult billingResult) {
-                if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                    queryProProductDetails();
-                    checkExistingPurchases();
-                }
-            }
-            @Override
-            public void onBillingServiceDisconnected() {}
-        });
-    }
-
-    private void queryProProductDetails() {
-        if (billingClient == null || !billingClient.isReady()) return;
-        QueryProductDetailsParams.Product product = QueryProductDetailsParams.Product.newBuilder()
-                .setProductId(SKU_PRO_LIFETIME)
-                .setProductType(BillingClient.ProductType.INAPP)
-                .build();
-        QueryProductDetailsParams params = QueryProductDetailsParams.newBuilder()
-                .setProductList(Collections.singletonList(product))
-                .build();
-        billingClient.queryProductDetailsAsync(params, (billingResult, productDetailsList) -> {
-            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && productDetailsList != null && !productDetailsList.isEmpty()) {
-                proProductDetails = productDetailsList.get(0);
-                if (proProductDetails.getOneTimePurchaseOfferDetails() != null) {
-                    formattedLaunchPrice = proProductDetails.getOneTimePurchaseOfferDetails().getFormattedPrice();
-                }
-            }
-        });
-    }
-
-    private void checkExistingPurchases() {
-        if (billingClient == null || !billingClient.isReady()) return;
-        QueryPurchasesParams params = QueryPurchasesParams.newBuilder()
-                .setProductType(BillingClient.ProductType.INAPP)
-                .build();
-        billingClient.queryPurchasesAsync(params, (billingResult, purchases) -> {
-            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && purchases != null) {
-                for (Purchase p : purchases) {
-                    handlePurchase(p);
-                }
-            }
-        });
-    }
-
-    private void handlePurchase(Purchase purchase) {
-        if (purchase.getProducts().contains(SKU_PRO_LIFETIME) && purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
-            if (!purchase.isAcknowledged()) {
-                AcknowledgePurchaseParams ackParams = AcknowledgePurchaseParams.newBuilder()
-                        .setPurchaseToken(purchase.getPurchaseToken())
-                        .build();
-                billingClient.acknowledgePurchase(ackParams, result -> {});
-            }
-            prefs.edit().putBoolean("isProUnlocked", true).apply();
-            mainHandler.post(() -> {
-                Toast.makeText(MainActivity.this, tr("pro_unlocked_toast"), Toast.LENGTH_LONG).show();
-                buildMainUI();
-                applyThemeAndLang();
-            });
-        }
-    }
-
-    private void openPlayStoreOrBilling() {
+    private void redirectToProPlayStore() {
         if (isProUnlocked()) {
             Toast.makeText(this, "⭐ " + tr("pro_version_badge"), Toast.LENGTH_SHORT).show();
             return;
         }
-        if (billingClient != null && billingClient.isReady() && proProductDetails != null) {
-            BillingFlowParams.ProductDetailsParams pdParams = BillingFlowParams.ProductDetailsParams.newBuilder()
-                    .setProductDetails(proProductDetails)
-                    .build();
-            BillingFlowParams flowParams = BillingFlowParams.newBuilder()
-                    .setProductDetailsParamsList(Collections.singletonList(pdParams))
-                    .build();
-            billingClient.launchBillingFlow(this, flowParams);
-        } else {
-            try {
-                Intent marketIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + getPackageName()));
-                startActivity(marketIntent);
-            } catch (Exception e) {
-                Intent webIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + getPackageName()));
-                startActivity(webIntent);
-            }
+        try {
+            Intent marketIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + PRO_PACKAGE_NAME));
+            startActivity(marketIntent);
+        } catch (Exception e) {
+            Intent webIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + PRO_PACKAGE_NAME));
+            startActivity(webIntent);
         }
     }
 
     // ==================== DESIGN 3D RELIEF & COMPOSANTS STUDIO ====================
 
-    // Crée un véritable effet 3D avec socle inférieur foncé, face dégradée vive et reflet supérieur
     private Drawable create3DButtonBg(int topColor, int bottomColor, int baseShadowColor, int highlightStrokeColor, int radiusPx) {
         GradientDrawable baseLayer = new GradientDrawable();
         baseLayer.setColor(baseShadowColor);
@@ -438,7 +374,6 @@ public class MainActivity extends AppCompatActivity {
         return ed;
     }
 
-    // Adaptateur Spinner sombre (corrige l'encadré tout blanc en mode sombre)
     private ArrayAdapter<String> createStyledSpinnerAdapter(List<String> items) {
         return new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
             @Override
@@ -560,6 +495,7 @@ public class MainActivity extends AppCompatActivity {
         return dialog;
     }
 
+    // Écran de fin des 14 jours d'essai (Sans aucun prix affiché, redirige vers la version Pro sur le Play Store)
     private void showPaywallUI() {
         ScrollView scroll = new ScrollView(this);
         scroll.setBackground(createGradientBg(Color.parseColor("#020617"), Color.parseColor("#0B1736"), 0, 0, 0));
@@ -574,7 +510,7 @@ public class MainActivity extends AppCompatActivity {
         ImageView logo = new ImageView(this);
         logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         loadHeaderBrandLogoInto(logo);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(140), dp(140));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(135), dp(135));
         logoLp.setMargins(0, 0, 0, dp(16));
         container.addView(logo, logoLp);
 
@@ -606,25 +542,18 @@ public class MainActivity extends AppCompatActivity {
         badge.setTextColor(Color.parseColor("#020617"));
         badge.setTextSize(12);
         badge.setTypeface(null, Typeface.BOLD);
-        badge.setPadding(dp(14), dp(5), dp(14), dp(5));
+        badge.setPadding(dp(14), dp(6), dp(14), dp(6));
         badge.setBackground(createGradientBg(Color.parseColor("#38BDF8"), Color.parseColor("#0EA5E9"), dp(10), 0, 0));
         offerCard.addView(badge);
 
-        TextView priceTv = new TextView(this);
-        priceTv.setText(formattedLaunchPrice);
-        priceTv.setTextColor(Color.WHITE);
-        priceTv.setTextSize(38);
-        priceTv.setTypeface(null, Typeface.BOLD);
-        priceTv.setPadding(0, dp(12), 0, dp(4));
-        offerCard.addView(priceTv);
-
-        TextView oneTimeTv = new TextView(this);
-        oneTimeTv.setText(tr("one_time_label"));
-        oneTimeTv.setTextColor(Color.parseColor("#34D399"));
-        oneTimeTv.setTextSize(13);
-        oneTimeTv.setTypeface(null, Typeface.BOLD);
-        oneTimeTv.setPadding(0, 0, 0, dp(14));
-        offerCard.addView(oneTimeTv);
+        TextView transferTitle = new TextView(this);
+        transferTitle.setText(tr("auto_transfer_title"));
+        transferTitle.setTextColor(Color.parseColor("#34D399"));
+        transferTitle.setTextSize(14);
+        transferTitle.setTypeface(null, Typeface.BOLD);
+        transferTitle.setGravity(Gravity.CENTER);
+        transferTitle.setPadding(0, dp(14), 0, dp(12));
+        offerCard.addView(transferTitle);
 
         TextView perksTv = new TextView(this);
         perksTv.setText(tr("pro_perks_list"));
@@ -635,26 +564,22 @@ public class MainActivity extends AppCompatActivity {
 
         container.addView(offerCard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        Button btnUnlock = createStudioButton(
-                String.format(Locale.getDefault(), tr("unlock_btn_fmt"), formattedLaunchPrice),
+        Button btnGetPro = createStudioButton(
+                tr("get_pro_playstore_btn"),
                 Color.parseColor("#10B981"), Color.parseColor("#059669"), Color.parseColor("#064E3B"), Color.parseColor("#6EE7B7")
         );
-        btnUnlock.setTextSize(16);
-        btnUnlock.setOnClickListener(v -> openPlayStoreOrBilling());
+        btnGetPro.setTextSize(16);
+        btnGetPro.setOnClickListener(v -> redirectToProPlayStore());
         LinearLayout.LayoutParams unlockLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
         unlockLp.setMargins(0, dp(22), 0, dp(10));
-        container.addView(btnUnlock, unlockLp);
+        container.addView(btnGetPro, unlockLp);
 
-        Button btnSimPaywall = createStudioButton(
-                "🧪 TEST : Simuler l'achat Pro",
-                Color.parseColor("#8B5CF6"), Color.parseColor("#6D28D9"), Color.parseColor("#4C1D95"), Color.parseColor("#DDD6FE")
+        Button btnManualBackup = createStudioButton(
+                tr("backup_export_btn"),
+                Color.parseColor("#2563EB"), Color.parseColor("#1D4ED8"), Color.parseColor("#1E3A8A"), Color.parseColor("#93C5FD")
         );
-        btnSimPaywall.setOnClickListener(v -> {
-            prefs.edit().putBoolean("devBypassPro", true).apply();
-            buildMainUI();
-            applyThemeAndLang();
-        });
-        container.addView(btnSimPaywall, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        btnManualBackup.setOnClickListener(v -> startBackupExport());
+        container.addView(btnManualBackup, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
 
         setContentView(scroll);
     }
@@ -668,7 +593,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Charge le logo de l'utilisateur en haut de l'écran s'il est renseigné, sinon le logo OptiStock
     private void loadHeaderBrandLogoInto(ImageView imgView) {
         Bitmap userBmp = getUserCompanyLogoBitmap();
         if (userBmp != null) {
@@ -709,7 +633,7 @@ public class MainActivity extends AppCompatActivity {
         splashRoot.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 0.72f));
 
         TextView footerTv = new TextView(this);
-        footerTv.setText("Développé par GoDev  •  v1.15");
+        footerTv.setText("Développé par GoDev");
         footerTv.setTextColor(Color.parseColor("#38BDF8"));
         footerTv.setTextSize(14);
         footerTv.setTypeface(null, Typeface.BOLD);
@@ -876,13 +800,12 @@ public class MainActivity extends AppCompatActivity {
         dict.put("csv_ok", new String[]{"✅ Fichier CSV enregistré avec succès !", "✅ CSV file saved successfully!", "✅ ¡Archivo CSV guardado con éxito!"});
         dict.put("trial_banner_fmt", new String[]{"🎁 Essai gratuit (%1$d j)  •  Cliquez ici pour la version Pro", "🎁 Free trial (%1$d d)  •  Click here for Pro version", "🎁 Prueba gratis (%1$d d)  •  Clic aquí para versión Pro"});
         dict.put("pro_version_badge", new String[]{"⭐ Version Pro", "⭐ Pro Version", "⭐ Versión Pro"});
-        dict.put("trial_expired_title", new String[]{"Essai gratuit de 7 jours terminé", "7-Day Free Trial Ended", "Prueba gratuita de 7 días finalizada"});
-        dict.put("trial_expired_sub", new String[]{"Débloquez OptiStock définitivement pour continuer à gérer vos stocks et vos tickets sans limite.", "Unlock OptiStock permanently to keep managing your inventory and receipts without limits.", "Desbloquea OptiStock para siempre para seguir gestionando tus stocks y tickets."});
-        dict.put("launch_offer_badge", new String[]{"🚀 OFFRE DE LANCEMENT • LICENCE À VIE", "🚀 LAUNCH OFFER • LIFETIME LICENSE", "🚀 OFERTA DE LANZAMIENTO • DE POR VIDA"});
-        dict.put("one_time_label", new String[]{"Achat unique • Aucun abonnement", "One-time purchase • No subscription", "Compra única • Sin suscripción"});
-        dict.put("pro_perks_list", new String[]{"✓ Multi-stocks & catégories illimités\n✓ Scan code-barres + saisie rapide sans scan\n✓ Import de catalogue CSV / Excel en 1 clic\n✓ Ticket de caisse PDF, remises & envoi e-mail\n✓ Historique CSV & sauvegarde complète JSON", "✓ Unlimited multi-stocks & categories\n✓ Barcode scanner + fast manual mode\n✓ 1-click CSV / Excel catalog import\n✓ PDF receipts, discounts & client emails\n✓ CSV history & full JSON backup", "✓ Multi-stocks y categorías ilimitados\n✓ Escáner y modo manual rápido\n✓ Importación CSV / Excel en 1 clic\n✓ Tickets PDF, descuentos y envío email"});
-        dict.put("unlock_btn_fmt", new String[]{"🔓 Débloquer à vie (%1$s)", "🔓 Unlock Lifetime (%1$s)", "🔓 Desbloquear de por vida (%1$s)"});
-        dict.put("pro_unlocked_toast", new String[]{"⭐ Merci ! OptiStock Version Pro est activé.", "⭐ Thank you! OptiStock Pro Version is active.", "⭐ ¡Gracias! OptiStock Versión Pro activada."});
+        dict.put("trial_expired_title", new String[]{"Période d'essai de 14 jours terminée", "14-Day Free Trial Ended", "Periodo de prueba de 14 días finalizado"});
+        dict.put("trial_expired_sub", new String[]{"Téléchargez OptiStock Pro sur le Play Store pour continuer à utiliser l'application sans aucune limite.", "Download OptiStock Pro on the Play Store to continue using the app without any limits.", "Descargue OptiStock Pro en Play Store para seguir usando la aplicación sin límites."});
+        dict.put("launch_offer_badge", new String[]{"🚀 PASSER À OPTISTOCK PRO", "🚀 UPGRADE TO OPTISTOCK PRO", "🚀 PASAR A OPTISTOCK PRO"});
+        dict.put("auto_transfer_title", new String[]{"🔄 Transfert 100 % automatique de toutes vos données, photos et réglages dès l'ouverture d'OptiStock Pro", "🔄 100% automatic transfer of all your data, photos and settings upon opening OptiStock Pro", "🔄 Transferencia 100% automática de todos sus datos, fotos y ajustes al abrir OptiStock Pro"});
+        dict.put("pro_perks_list", new String[]{"✓ Conservation intégrale de vos stocks & produits\n✓ Conservation de votre logo, nom & tickets\n✓ Multi-stocks & catégories illimités\n✓ Scan code-barres + saisie rapide sans scan\n✓ Export PDF, CSV & envoi e-mail automatique", "✓ Full preservation of your stocks & products\n✓ Keeps your custom logo, name & receipts\n✓ Unlimited multi-stocks & categories\n✓ Barcode scanner + fast manual mode\n✓ PDF, CSV exports & automatic email dispatch", "✓ Conservación total de sus stocks y productos\n✓ Conserva su logo, nombre y tickets\n✓ Multi-stocks y categorías ilimitados\n✓ Escáner + modo manual rápido"});
+        dict.put("get_pro_playstore_btn", new String[]{"📲 Obtenir OptiStock Pro sur Google Play", "📲 Get OptiStock Pro on Google Play", "📲 Obtener OptiStock Pro en Google Play"});
 
         String eff = langPref.equals("SYS") ? Locale.getDefault().getLanguage().toLowerCase() : langPref;
         int idx = eff.startsWith("en") ? 1 : (eff.startsWith("es") ? 2 : 0);
@@ -896,13 +819,13 @@ public class MainActivity extends AppCompatActivity {
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setPadding(dp(12), dp(10), dp(12), dp(10));
 
-        // 0. ENCADRÉ SUPÉRIEUR : ESSAI GRATUIT OU VERSION PRO
+        // 0. ENCADRÉ SUPÉRIEUR : ESSAI GRATUIT (14 JOURS SANS PRIX) OU VERSION PRO
         trialBannerText = new TextView(this);
         trialBannerText.setTextSize(12);
         trialBannerText.setTypeface(null, Typeface.BOLD);
         trialBannerText.setGravity(Gravity.CENTER);
         trialBannerText.setPadding(dp(12), dp(7), dp(12), dp(7));
-        trialBannerText.setOnClickListener(v -> openPlayStoreOrBilling());
+        trialBannerText.setOnClickListener(v -> redirectToProPlayStore());
         elevate(trialBannerText, 4);
         LinearLayout.LayoutParams trialLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         trialLp.setMargins(0, 0, 0, dp(8));
@@ -984,7 +907,7 @@ public class MainActivity extends AppCompatActivity {
         headerCard.addView(actionRowLayout, actRowLp);
         rootLayout.addView(headerCard, hCardLp);
 
-        // 3. BOUTONS DE SÉLECTION DE STOCK ET CATÉGORIE EN 3D (OUVRENT DES MODALES COMME HISTORIQUE)
+        // 3. BOUTONS DE SÉLECTION DE STOCK ET CATÉGORIE EN 3D
         subHeaderLayout = new LinearLayout(this);
         subHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1158,43 +1081,25 @@ public class MainActivity extends AppCompatActivity {
         exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(38), dp(36)));
         rootLayout.addView(exitTotalBanner, bannerLp);
 
-        // 8. BARRE DU BAS : BOUTONS 3D VIFS SOUS LE POUCE
+        // 8. BARRE DU BAS : + ENTRÉE & - SORTIE PLEINE LARGEUR SOUS LE POUCE (SANS BOUTON TEST)
         bottomBarLayout = new LinearLayout(this);
         bottomBarLayout.setOrientation(LinearLayout.HORIZONTAL);
         bottomBarLayout.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         actParams.setMargins(0, dp(6), 0, dp(2));
 
-        btnTestSim = createStudioButton("🧪 TEST", Color.parseColor("#A855F7"), Color.parseColor("#7E22CE"), Color.parseColor("#4C1D95"), Color.parseColor("#E9D5FF"));
-        btnTestSim.setTextSize(11);
-        btnTestSim.setPadding(dp(4), dp(2), dp(4), dp(6));
-        btnTestSim.setOnClickListener(v -> {
-            boolean cur = prefs.getBoolean("devBypassPro", false);
-            prefs.edit().putBoolean("devBypassPro", !cur).apply();
-            Toast.makeText(this, !cur ? "⭐ Simulation : Version Pro ACTIVÉE" : "🎁 Simulation : Retour en Essai gratuit", Toast.LENGTH_SHORT).show();
-            applyThemeAndLang();
-        });
-        btnTestSim.setOnLongClickListener(v -> {
-            prefs.edit().putBoolean("devBypassPro", false).putBoolean("isProUnlocked", false).apply();
-            showPaywallUI();
-            return true;
-        });
-        LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(dp(68), dp(54));
-        testLp.setMargins(0, 0, dp(6), 0);
-        bottomBarLayout.addView(btnTestSim, testLp);
-
         btnEntry = createStudioButton(tr("btn_in"), Color.parseColor("#10B981"), Color.parseColor("#059669"), Color.parseColor("#064E3B"), Color.parseColor("#6EE7B7"));
-        btnEntry.setTextSize(15);
+        btnEntry.setTextSize(16);
         btnEntry.setOnClickListener(v -> handleEntryAction());
         LinearLayout.LayoutParams btnInParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
-        btnInParams.setMargins(0, 0, dp(5), 0);
+        btnInParams.setMargins(0, 0, dp(6), 0);
         bottomBarLayout.addView(btnEntry, btnInParams);
 
         btnExit = createStudioButton(tr("btn_out"), Color.parseColor("#EF4444"), Color.parseColor("#DC2626"), Color.parseColor("#7F1D1D"), Color.parseColor("#FCA5A5"));
-        btnExit.setTextSize(15);
+        btnExit.setTextSize(16);
         btnExit.setOnClickListener(v -> handleExitAction());
         LinearLayout.LayoutParams btnOutParams = new LinearLayout.LayoutParams(0, dp(54), 1f);
-        btnOutParams.setMargins(dp(5), 0, 0, 0);
+        btnOutParams.setMargins(dp(6), 0, 0, 0);
         bottomBarLayout.addView(btnExit, btnOutParams);
 
         rootLayout.addView(bottomBarLayout, actParams);
@@ -1214,19 +1119,18 @@ public class MainActivity extends AppCompatActivity {
             headerCard.setBackground(createGradientBg(Color.parseColor("#FFFFFF"), Color.parseColor("#F1F5F9"), dp(18), dp(1.5f), Color.parseColor("#94A3B8")));
         }
 
-        // En-tête : si l'utilisateur a renseigné son logo et/ou son nom d'entreprise, ils remplacent ceux d'OptiStock
         loadHeaderBrandLogoInto(headerLogo);
         loadHeaderBrandLogoInto(emptyLogo);
 
         if (shopName != null && !shopName.trim().isEmpty()) {
             titleText.setText(shopName.trim());
             titleText.setTextColor(textColor);
-            subtitleText.setText("OPTISTOCK PRO");
+            subtitleText.setText(isProUnlocked() ? "OPTISTOCK PRO" : "OPTISTOCK");
             subtitleText.setTextColor(cyanHighlight);
         } else {
-            SpannableString styledTitle = new SpannableString("OptiStock");
+            SpannableString styledTitle = new SpannableString(isProUnlocked() ? "OptiStock Pro" : "OptiStock");
             styledTitle.setSpan(new ForegroundColorSpan(textColor), 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            styledTitle.setSpan(new ForegroundColorSpan(cyanHighlight), 4, 9, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            styledTitle.setSpan(new ForegroundColorSpan(cyanHighlight), 4, styledTitle.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             titleText.setText(styledTitle);
             subtitleText.setText(tr("app_sub"));
             subtitleText.setTextColor(cyanHighlight);
@@ -1243,7 +1147,6 @@ public class MainActivity extends AppCompatActivity {
             trialBannerText.setBackground(create3DButtonBg(Color.parseColor("#0284C7"), Color.parseColor("#0369A1"), Color.parseColor("#0C4A6E"), Color.parseColor("#7DD3FC"), dp(10)));
         }
 
-        // Boutons 3D colorés (fini l'effet sombre/transparent)
         btnHistory.setText(tr("hist_btn"));
         btnHistory.setTextColor(Color.WHITE);
         btnHistory.setBackground(create3DButtonBg(Color.parseColor("#6366F1"), Color.parseColor("#4F46E5"), Color.parseColor("#312E81"), Color.parseColor("#A5B4FC"), dp(12)));
@@ -1819,7 +1722,6 @@ public class MainActivity extends AppCompatActivity {
             PdfDocument.Page page = pdf.startPage(pageInfo);
             Canvas canvas = page.getCanvas();
 
-            // En-tête de ticket sans logo et sans référence de stock, avec nom d'entreprise en gros
             String compName = (shopName != null && !shopName.trim().isEmpty()) ? shopName.trim().toUpperCase() : "OPTISTOCK";
             paint.setColor(Color.rgb(15, 23, 42));
             paint.setTextSize(22f);
@@ -2218,7 +2120,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ==================== TICKET DE CAISSE (SANS LOGO, NOM EN GROS, SANS STOCK, "NOMBRE D'ARTICLES") ====================
+    // ==================== TICKET DE CAISSE ====================
 
     private String buildReceiptBodyText(double discountVal, boolean isPercent, boolean includeHeaderTitle) {
         StringBuilder sb = new StringBuilder();
@@ -2306,7 +2208,6 @@ public class MainActivity extends AppCompatActivity {
 
         box.addView(discRow, discRowLp);
 
-        // Ticket papier : sans logo, avec le nom de l'entreprise écrit en plus gros tout en haut
         LinearLayout paperTicketCard = new LinearLayout(this);
         paperTicketCard.setOrientation(LinearLayout.VERTICAL);
         paperTicketCard.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -2475,7 +2376,6 @@ public class MainActivity extends AppCompatActivity {
         startActivityForResult(intent, REQ_CREATE_SINGLE_RECEIPT_PDF);
     }
 
-    // Génération du Ticket PDF : sans logo, nom d'entreprise en plus gros centré, sans référence stock, et avec "Nombre d'articles"
     private void generateSingleReceiptPdfToUri(Uri uri, double discountVal, boolean isPercent) {
         try {
             PdfDocument pdf = new PdfDocument();
@@ -2844,7 +2744,6 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams smpCsvLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
         box.addView(btnSampleCsv, smpCsvLp);
 
-        // SECTION SMTP AVEC ASTÉRISQUE (*) ET EXPLICATION DÉTAILLÉE
         box.addView(createSectionLabel("📤 Configuration d'envoi E-mail direct (SMTP) *"));
 
         TextView smtpHelpTv = new TextView(this);
@@ -2947,7 +2846,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             saveData();
             JSONObject backup = new JSONObject();
-            backup.put("version", 5);
+            backup.put("version", 6);
             backup.put("exportedAt", System.currentTimeMillis());
             backup.put("inventory_json", prefs.getString("inventory_json", "[]"));
             backup.put("stocks_json", prefs.getString("stocks_json", "[]"));
@@ -2961,6 +2860,7 @@ public class MainActivity extends AppCompatActivity {
             backup.put("smtpHost", smtpHost);
             backup.put("smtpPort", smtpPort);
             backup.put("senderEmail", senderEmail);
+            backup.put("senderAppPass", senderAppPass);
             backup.put("lowStockThreshold", lowStockThreshold);
 
             JSONObject photosMap = new JSONObject();
@@ -2994,6 +2894,73 @@ public class MainActivity extends AppCompatActivity {
         startActivityForResult(intent, REQ_IMPORT_BACKUP);
     }
 
+    private void applyBackupJsonObject(JSONObject backup) throws Exception {
+        if (backup.has("photos_map")) {
+            JSONObject photosMap = backup.getJSONObject("photos_map");
+            Iterator<String> keys = photosMap.keys();
+            while (keys.hasNext()) {
+                String fileName = keys.next();
+                String b64 = photosMap.optString(fileName, "");
+                if (!b64.isEmpty()) base64ToFile(b64, fileName);
+            }
+        }
+
+        SharedPreferences.Editor ed = prefs.edit();
+        if (backup.has("inventory_json")) ed.putString("inventory_json", backup.getString("inventory_json"));
+        if (backup.has("stocks_json")) ed.putString("stocks_json", backup.getString("stocks_json"));
+        if (backup.has("cats_json")) ed.putString("cats_json", backup.getString("cats_json"));
+        if (backup.has("clients_json")) ed.putString("clients_json", backup.getString("clients_json"));
+        if (backup.has("receipt_json")) ed.putString("receipt_json", backup.getString("receipt_json"));
+        if (backup.has("history_json")) ed.putString("history_json", backup.getString("history_json"));
+        if (backup.has("saved_receipts_json")) ed.putString("saved_receipts_json", backup.getString("saved_receipts_json"));
+        if (backup.has("currentStock")) ed.putString("currentStock", backup.getString("currentStock"));
+        if (backup.has("shopName")) {
+            shopName = backup.getString("shopName");
+            ed.putString("shopName", shopName);
+        }
+        if (backup.has("customLogoPath")) {
+            customLogoPath = backup.getString("customLogoPath");
+            ed.putString("customLogoPath", customLogoPath);
+        }
+        if (backup.has("smtpHost")) {
+            smtpHost = backup.getString("smtpHost");
+            ed.putString("smtpHost", smtpHost);
+        }
+        if (backup.has("smtpPort")) {
+            smtpPort = backup.getString("smtpPort");
+            ed.putString("smtpPort", smtpPort);
+        }
+        if (backup.has("senderEmail")) {
+            senderEmail = backup.getString("senderEmail");
+            ed.putString("senderEmail", senderEmail);
+        }
+        if (backup.has("senderAppPass")) {
+            senderAppPass = backup.getString("senderAppPass");
+            ed.putString("senderAppPass", senderAppPass);
+        }
+        if (backup.has("lowStockThreshold")) {
+            lowStockThreshold = backup.getInt("lowStockThreshold");
+            ed.putInt("lowStockThreshold", lowStockThreshold);
+        }
+        if (backup.has("darkMode")) {
+            isDarkMode = backup.getBoolean("darkMode");
+            ed.putBoolean("darkMode", isDarkMode);
+        }
+        if (backup.has("usePrices")) {
+            usePrices = backup.getBoolean("usePrices");
+            ed.putBoolean("usePrices", usePrices);
+        }
+        if (backup.has("useScanner")) {
+            useScanner = backup.getBoolean("useScanner");
+            ed.putBoolean("useScanner", useScanner);
+        }
+        if (backup.has("langPref")) {
+            langPref = backup.getString("langPref");
+            ed.putString("langPref", langPref);
+        }
+        ed.apply();
+    }
+
     private void restoreBackupFromUri(Uri uri) {
         try {
             InputStream is = getContentResolver().openInputStream(uri);
@@ -3005,49 +2972,7 @@ public class MainActivity extends AppCompatActivity {
             is.close();
 
             JSONObject backup = new JSONObject(baos.toString("UTF-8"));
-            if (backup.has("photos_map")) {
-                JSONObject photosMap = backup.getJSONObject("photos_map");
-                Iterator<String> keys = photosMap.keys();
-                while (keys.hasNext()) {
-                    String fileName = keys.next();
-                    String b64 = photosMap.optString(fileName, "");
-                    if (!b64.isEmpty()) base64ToFile(b64, fileName);
-                }
-            }
-
-            SharedPreferences.Editor ed = prefs.edit();
-            if (backup.has("inventory_json")) ed.putString("inventory_json", backup.getString("inventory_json"));
-            if (backup.has("stocks_json")) ed.putString("stocks_json", backup.getString("stocks_json"));
-            if (backup.has("cats_json")) ed.putString("cats_json", backup.getString("cats_json"));
-            if (backup.has("clients_json")) ed.putString("clients_json", backup.getString("clients_json"));
-            if (backup.has("history_json")) ed.putString("history_json", backup.getString("history_json"));
-            if (backup.has("saved_receipts_json")) ed.putString("saved_receipts_json", backup.getString("saved_receipts_json"));
-            if (backup.has("currentStock")) ed.putString("currentStock", backup.getString("currentStock"));
-            if (backup.has("shopName")) {
-                shopName = backup.getString("shopName");
-                ed.putString("shopName", shopName);
-            }
-            if (backup.has("customLogoPath")) {
-                customLogoPath = backup.getString("customLogoPath");
-                ed.putString("customLogoPath", customLogoPath);
-            }
-            if (backup.has("smtpHost")) {
-                smtpHost = backup.getString("smtpHost");
-                ed.putString("smtpHost", smtpHost);
-            }
-            if (backup.has("smtpPort")) {
-                smtpPort = backup.getString("smtpPort");
-                ed.putString("smtpPort", smtpPort);
-            }
-            if (backup.has("senderEmail")) {
-                senderEmail = backup.getString("senderEmail");
-                ed.putString("senderEmail", senderEmail);
-            }
-            if (backup.has("lowStockThreshold")) {
-                lowStockThreshold = backup.getInt("lowStockThreshold");
-                ed.putInt("lowStockThreshold", lowStockThreshold);
-            }
-            ed.apply();
+            applyBackupJsonObject(backup);
 
             bitmapCache.clear();
             loadData();

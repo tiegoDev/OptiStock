@@ -4,13 +4,18 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="com.android.vending.BILLING" />
+
+    <!-- Permet à la version Pro et à la version Essai de se détecter mutuellement sur Android 11+ -->
+    <queries>
+        <package android:name="com.godev.optistock.trial" />
+        <package android:name="com.godev.optistock.pro" />
+    </queries>
 
     <application
         android:allowBackup="true"
         android:icon="@drawable/splash_logo"
         android:roundIcon="@drawable/splash_logo"
-        android:label="OptiStock"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.NoActionBar">
 
@@ -28,5 +33,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Pont automatique de transfert des données et photos de la version Essai vers la version Pro -->
+        <provider
+            android:name=".MigrationProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="true" />
     </application>
 </manifest>

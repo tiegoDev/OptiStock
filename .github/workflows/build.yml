@@ -1,4 +1,4 @@
-name: Android CI
+name: Android CI - Dual Play Store Release (Trial 14d & Pro)
 
 on:
   push:
@@ -46,11 +46,23 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: Build Debug APK
-      run: gradle assembleDebug --no-daemon
+    - name: Build Trial & Pro APKs and Play Store AAB Bundles
+      run: gradle assembleRelease bundleRelease --no-daemon
 
-    - name: Upload APK
+    - name: Prepare Play Store Release Package
+      run: |
+        mkdir -p playstore_release/AAB_PlayStore
+        mkdir -p playstore_release/APK_Install
+        mkdir -p playstore_release/Visuels_PlayStore
+        cp app/build/outputs/bundle/trialRelease/*.aab playstore_release/AAB_PlayStore/OptiStock-Trial-14Jours-v1.16.aab || true
+        cp app/build/outputs/bundle/proRelease/*.aab playstore_release/AAB_PlayStore/OptiStock-PRO-v1.16.aab || true
+        cp app/build/outputs/apk/trial/release/*.apk playstore_release/APK_Install/OptiStock-Trial-14Jours-v1.16.apk || true
+        cp app/build/outputs/apk/pro/release/*.apk playstore_release/APK_Install/OptiStock-PRO-v1.16.apk || true
+        cp playstore_assets.html playstore_release/Visuels_PlayStore/
+        cp app/src/main/res/drawable/splash_logo.png playstore_release/Visuels_PlayStore/Logo_Original.png || true
+
+    - name: Upload Complete Play Store Pack (AAB + APK + Banners)
       uses: actions/upload-artifact@v4
       with:
-        name: OptiStock-v1.15-Debug
-        path: app/build/outputs/apk/debug/*.apk
+        name: OptiStock-Pack-Complet-PlayStore-v1.16
+        path: playstore_release/

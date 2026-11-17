@@ -25,11 +25,10 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.godev.optistock"
         minSdk 24
         targetSdk 34
-        versionCode 15
-        versionName "1.15"
+        versionCode 16
+        versionName "1.16"
     }
 
     signingConfigs {
@@ -41,6 +40,26 @@ android {
         }
     }
 
+    flavorDimensions "edition"
+    productFlavors {
+        trial {
+            dimension "edition"
+            applicationId "com.godev.optistock.trial"
+            resValue "string", "app_name", "OptiStock"
+            buildConfigField "boolean", "IS_PRO_VERSION", "false"
+        }
+        pro {
+            dimension "edition"
+            applicationId "com.godev.optistock.pro"
+            resValue "string", "app_name", "OptiStock Pro"
+            buildConfigField "boolean", "IS_PRO_VERSION", "true"
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
     buildTypes {
         debug {
             signingConfig signingConfigs.fixedConfig
@@ -48,6 +67,7 @@ android {
         release {
             signingConfig signingConfigs.fixedConfig
             minifyEnabled false
+            shrinkResources false
         }
     }
 
@@ -61,5 +81,4 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
-    implementation 'com.android.billingclient:billing:6.2.1'
 }
