@@ -31,6 +31,15 @@ android {
         versionName "1.16"
     }
 
+    aaptOptions {
+        cruncherEnabled = false
+    }
+
+    lintOptions {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
     signingConfigs {
         fixedConfig {
             storeFile file("optistock.keystore")

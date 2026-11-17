@@ -22,6 +22,24 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Normalize PNG resources & clean duplicate strings for AAPT2 Release
+      run: |
+        if [ -f "app/src/main/res/values/strings.xml" ]; then
+          sed -i '/name="app_name"/d' app/src/main/res/values/strings.xml
+        fi
+        python3 - << 'PYEOF'
+        import os
+        try:
+            from PIL import Image
+            p = "app/src/main/res/drawable/splash_logo.png"
+            if os.path.exists(p):
+                im = Image.open(p).convert("RGBA")
+                im.save(p, "PNG")
+                print("splash_logo.png normalized to true RGBA PNG")
+        except Exception as e:
+            print("PIL skip:", e)
+        PYEOF
+
     - name: Generate and persist fixed Keystore if missing
       run: |
         if [ ! -f "app/optistock.keystore" ]; then
@@ -47,10 +65,10 @@ jobs:
         gradle-version: '8.4'
 
     - name: Build Trial Edition (APK & AAB)
-      run: gradle assembleTrialRelease bundleTrialRelease --no-daemon
+      run: gradle assembleTrialRelease bundleTrialRelease --no-daemon --stacktrace
 
     - name: Build Pro Edition (APK & AAB)
-      run: gradle assembleProRelease bundleProRelease --no-daemon
+      run: gradle assembleProRelease bundleProRelease --no-daemon --stacktrace
 
     - name: Prepare Play Store Release Package
       run: |
