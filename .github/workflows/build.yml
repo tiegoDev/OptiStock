@@ -1,4 +1,4 @@
-name: Android CI - Dual Play Store Release (Trial 14d & Pro)
+name: Android CI - Dual Play Store Release
 
 on:
   push:
@@ -46,8 +46,11 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: Build Trial & Pro APKs and Play Store AAB Bundles
-      run: gradle assembleRelease bundleRelease --no-daemon
+    - name: Build Trial Edition (APK & AAB)
+      run: gradle assembleTrialRelease bundleTrialRelease --no-daemon
+
+    - name: Build Pro Edition (APK & AAB)
+      run: gradle assembleProRelease bundleProRelease --no-daemon
 
     - name: Prepare Play Store Release Package
       run: |
@@ -61,7 +64,7 @@ jobs:
         cp playstore_assets.html playstore_release/Visuels_PlayStore/
         cp app/src/main/res/drawable/splash_logo.png playstore_release/Visuels_PlayStore/Logo_Original.png || true
 
-    - name: Upload Complete Play Store Pack (AAB + APK + Banners)
+    - name: Upload Complete Play Store Pack
       uses: actions/upload-artifact@v4
       with:
         name: OptiStock-Pack-Complet-PlayStore-v1.16
