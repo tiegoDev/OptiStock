@@ -167,7 +167,7 @@ public class MainActivity extends AppCompatActivity {
     private double lastExitTotal = 0.0;
     private double sessionExitTotal = 0.0;
 
-    // Configuration des 2 éditions : Essai gratuit de 14 jours vs Version Pro
+    // Configuration des 2 éditions : Essai gratuit de 14 jours vs Version Pro (Aucun prix mentionné)
     private static final String PRO_PACKAGE_NAME = "com.godev.optistock.pro";
     private static final String TRIAL_PROVIDER_URI = "content://com.godev.optistock.trial.provider/backup";
     private static final long TRIAL_DURATION_MS = 14L * 24L * 60L * 60L * 1000L;
@@ -205,7 +205,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("OptiStockPrefs", MODE_PRIVATE);
 
-        // Si on est sur la version Pro, on tente automatiquement d'aspirer toutes les données de la version d'essai
         if (BuildConfig.IS_PRO_VERSION) {
             tryAutoMigrateFromTrialVersion();
         }
@@ -228,7 +227,6 @@ public class MainActivity extends AppCompatActivity {
         showSplashScreen();
     }
 
-    // Migration automatique et silencieuse depuis la version d'essai (14 jours) vers la version Pro
     private void tryAutoMigrateFromTrialVersion() {
         if (prefs.getBoolean("autoMigratedFromTrial", false)) return;
         try {
@@ -240,7 +238,6 @@ public class MainActivity extends AppCompatActivity {
                         JSONObject backup = new JSONObject(payload);
                         String invStr = backup.optString("inventory_json", "[]");
                         String savedShop = backup.optString("shopName", "");
-                        // On applique la migration si la version d'essai contient des données ou une config
                         if (!invStr.equals("[]") || !savedShop.isEmpty() || !backup.optString("clients_json", "[]").equals("[]")) {
                             applyBackupJsonObject(backup);
                             prefs.edit().putBoolean("autoMigratedFromTrial", true).apply();
@@ -495,7 +492,7 @@ public class MainActivity extends AppCompatActivity {
         return dialog;
     }
 
-    // Écran de fin des 14 jours d'essai (Sans aucun prix affiché, redirige vers la version Pro sur le Play Store)
+    // Écran de fin des 14 jours d'essai (Sans aucun prix, avec rappel de ne pas désinstaller la version d'essai avant d'ouvrir la Pro)
     private void showPaywallUI() {
         ScrollView scroll = new ScrollView(this);
         scroll.setBackground(createGradientBg(Color.parseColor("#020617"), Color.parseColor("#0B1736"), 0, 0, 0));
@@ -504,20 +501,20 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setGravity(Gravity.CENTER_HORIZONTAL);
-        container.setPadding(dp(24), dp(36), dp(24), dp(24));
+        container.setPadding(dp(22), dp(32), dp(22), dp(24));
         scroll.addView(container);
 
         ImageView logo = new ImageView(this);
         logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         loadHeaderBrandLogoInto(logo);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(135), dp(135));
-        logoLp.setMargins(0, 0, 0, dp(16));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(125), dp(125));
+        logoLp.setMargins(0, 0, 0, dp(14));
         container.addView(logo, logoLp);
 
         TextView title = new TextView(this);
         title.setText(tr("trial_expired_title"));
         title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
+        title.setTextSize(21);
         title.setTypeface(null, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
         container.addView(title);
@@ -525,15 +522,15 @@ public class MainActivity extends AppCompatActivity {
         TextView sub = new TextView(this);
         sub.setText(tr("trial_expired_sub"));
         sub.setTextColor(Color.parseColor("#94A3B8"));
-        sub.setTextSize(14);
+        sub.setTextSize(13.5f);
         sub.setGravity(Gravity.CENTER);
-        sub.setPadding(0, dp(8), 0, dp(20));
+        sub.setPadding(0, dp(6), 0, dp(16));
         container.addView(sub);
 
         LinearLayout offerCard = new LinearLayout(this);
         offerCard.setOrientation(LinearLayout.VERTICAL);
         offerCard.setGravity(Gravity.CENTER);
-        offerCard.setPadding(dp(20), dp(20), dp(20), dp(20));
+        offerCard.setPadding(dp(18), dp(18), dp(18), dp(18));
         offerCard.setBackground(createGradientBg(Color.parseColor("#112240"), Color.parseColor("#091326"), dp(20), dp(2), Color.parseColor("#38BDF8")));
         elevate(offerCard, 8);
 
@@ -549,10 +546,10 @@ public class MainActivity extends AppCompatActivity {
         TextView transferTitle = new TextView(this);
         transferTitle.setText(tr("auto_transfer_title"));
         transferTitle.setTextColor(Color.parseColor("#34D399"));
-        transferTitle.setTextSize(14);
+        transferTitle.setTextSize(13.5f);
         transferTitle.setTypeface(null, Typeface.BOLD);
         transferTitle.setGravity(Gravity.CENTER);
-        transferTitle.setPadding(0, dp(14), 0, dp(12));
+        transferTitle.setPadding(0, dp(12), 0, dp(10));
         offerCard.addView(transferTitle);
 
         TextView perksTv = new TextView(this);
@@ -564,14 +561,28 @@ public class MainActivity extends AppCompatActivity {
 
         container.addView(offerCard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // Encadré d'avertissement : ne pas désinstaller la version d'essai avant le 1er lancement d'OptiStock Pro
+        TextView keepInstalledWarn = new TextView(this);
+        keepInstalledWarn.setText(tr("keep_trial_installed_warning"));
+        keepInstalledWarn.setTextColor(Color.parseColor("#FEF3C7"));
+        keepInstalledWarn.setTextSize(12.5f);
+        keepInstalledWarn.setTypeface(null, Typeface.BOLD);
+        keepInstalledWarn.setGravity(Gravity.CENTER);
+        keepInstalledWarn.setPadding(dp(14), dp(12), dp(14), dp(12));
+        keepInstalledWarn.setBackground(createGradientBg(Color.parseColor("#78350F"), Color.parseColor("#451A03"), dp(14), dp(1.5f), Color.parseColor("#F59E0B")));
+        elevate(keepInstalledWarn, 4);
+        LinearLayout.LayoutParams warnLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        warnLp.setMargins(0, dp(14), 0, dp(16));
+        container.addView(keepInstalledWarn, warnLp);
+
         Button btnGetPro = createStudioButton(
                 tr("get_pro_playstore_btn"),
                 Color.parseColor("#10B981"), Color.parseColor("#059669"), Color.parseColor("#064E3B"), Color.parseColor("#6EE7B7")
         );
-        btnGetPro.setTextSize(16);
+        btnGetPro.setTextSize(15.5f);
         btnGetPro.setOnClickListener(v -> redirectToProPlayStore());
         LinearLayout.LayoutParams unlockLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
-        unlockLp.setMargins(0, dp(22), 0, dp(10));
+        unlockLp.setMargins(0, 0, 0, dp(10));
         container.addView(btnGetPro, unlockLp);
 
         Button btnManualBackup = createStudioButton(
@@ -734,7 +745,7 @@ public class MainActivity extends AppCompatActivity {
         dict.put("prod_name", new String[]{"Nom du produit", "Product Name", "Nombre del producto"});
         dict.put("code_opt_hint", new String[]{"Code ou Référence (optionnel, auto si vide)", "Barcode or Ref (optional, auto if empty)", "Código o Ref (opcional, auto si vacío)"});
         dict.put("qty_label", new String[]{"Quantité :", "Quantity:", "Cantidad:"});
-        dict.put("price_label", new String[]{"Prix unitaire (€ / $) :", "Unit Price (€ / $):", "Precio unitario (€ / $):"});
+        dict.put("price_label", new String[]{"Prix unitaire :", "Unit Price:", "Precio unitario:"});
         dict.put("category_label", new String[]{"Catégorie :", "Category:", "Categoría:"});
         dict.put("current_stock", new String[]{"En stock : ", "In stock: ", "En stock: "});
         dict.put("save", new String[]{"VALIDER", "SAVE", "GUARDAR"});
@@ -764,8 +775,8 @@ public class MainActivity extends AppCompatActivity {
         dict.put("opt_scanner", new String[]{"📷 Activer le scanner de code-barres", "📷 Enable barcode scanner", "📷 Activar escáner de código de barras"});
         dict.put("opt_prices", new String[]{"💶 Activer la gestion des prix & Ticket", "💶 Enable prices & Receipt", "💶 Activar precios y Ticket"});
         dict.put("opt_low_thresh", new String[]{"Seuil d'alerte stock bas (unités) :", "Low stock alert threshold (units):", "Umbral de alerta stock bajo (unidades):"});
-        dict.put("exit_total_live", new String[]{"Prix total de cette sortie : ", "Total price for this exit: ", "Precio total de esta salida: "});
-        dict.put("exit_banner", new String[]{"🧾 Ticket (%1$d art.) : %2$.2f €", "🧾 Receipt (%1$d it.) : %2$.2f", "🧾 Ticket (%1$d art.) : %2$.2f €"});
+        dict.put("exit_total_live", new String[]{"Total de cette sortie : ", "Total for this exit: ", "Total de esta salida: "});
+        dict.put("exit_banner", new String[]{"🧾 Ticket (%1$d art.) : %2$.2f", "🧾 Receipt (%1$d it.) : %2$.2f", "🧾 Ticket (%1$d art.) : %2$.2f"});
         dict.put("btn_receipt_view", new String[]{"📧 Ticket / PDF", "📧 Receipt / PDF", "📧 Ticket / PDF"});
         dict.put("receipt_title", new String[]{"🧾 Ticket de Caisse", "🧾 Sales Receipt", "🧾 Ticket de Caja"});
         dict.put("discount_label", new String[]{"Remise :", "Discount:", "Descuento:"});
@@ -804,6 +815,7 @@ public class MainActivity extends AppCompatActivity {
         dict.put("trial_expired_sub", new String[]{"Téléchargez OptiStock Pro sur le Play Store pour continuer à utiliser l'application sans aucune limite.", "Download OptiStock Pro on the Play Store to continue using the app without any limits.", "Descargue OptiStock Pro en Play Store para seguir usando la aplicación sin límites."});
         dict.put("launch_offer_badge", new String[]{"🚀 PASSER À OPTISTOCK PRO", "🚀 UPGRADE TO OPTISTOCK PRO", "🚀 PASAR A OPTISTOCK PRO"});
         dict.put("auto_transfer_title", new String[]{"🔄 Transfert 100 % automatique de toutes vos données, photos et réglages dès l'ouverture d'OptiStock Pro", "🔄 100% automatic transfer of all your data, photos and settings upon opening OptiStock Pro", "🔄 Transferencia 100% automática de todos sus datos, fotos y ajustes al abrir OptiStock Pro"});
+        dict.put("keep_trial_installed_warning", new String[]{"⚠️ IMPORTANT : Ne désinstallez pas cette version d'essai avant d'avoir ouvert OptiStock Pro une première fois, afin que tous vos stocks, photos et réglages soient transférés automatiquement.", "⚠️ IMPORTANT: Keep this trial version installed until you open OptiStock Pro for the first time, so all your stocks, photos and settings are transferred automatically.", "⚠️ IMPORTANTE: No desinstale esta versión de prueba antes de abrir OptiStock Pro por primera vez, para que sus stocks, fotos y ajustes se transfieran automáticamente."});
         dict.put("pro_perks_list", new String[]{"✓ Conservation intégrale de vos stocks & produits\n✓ Conservation de votre logo, nom & tickets\n✓ Multi-stocks & catégories illimités\n✓ Scan code-barres + saisie rapide sans scan\n✓ Export PDF, CSV & envoi e-mail automatique", "✓ Full preservation of your stocks & products\n✓ Keeps your custom logo, name & receipts\n✓ Unlimited multi-stocks & categories\n✓ Barcode scanner + fast manual mode\n✓ PDF, CSV exports & automatic email dispatch", "✓ Conservación total de sus stocks y productos\n✓ Conserva su logo, nombre y tickets\n✓ Multi-stocks y categorías ilimitados\n✓ Escáner + modo manual rápido"});
         dict.put("get_pro_playstore_btn", new String[]{"📲 Obtenir OptiStock Pro sur Google Play", "📲 Get OptiStock Pro on Google Play", "📲 Obtener OptiStock Pro en Google Play"});
 
@@ -1081,7 +1093,7 @@ public class MainActivity extends AppCompatActivity {
         exitTotalBanner.addView(btnResetTotal, new LinearLayout.LayoutParams(dp(38), dp(36)));
         rootLayout.addView(exitTotalBanner, bannerLp);
 
-        // 8. BARRE DU BAS : + ENTRÉE & - SORTIE PLEINE LARGEUR SOUS LE POUCE (SANS BOUTON TEST)
+        // 8. BARRE DU BAS : + ENTRÉE & - SORTIE PLEINE LARGEUR SOUS LE POUCE
         bottomBarLayout = new LinearLayout(this);
         bottomBarLayout.setOrientation(LinearLayout.HORIZONTAL);
         bottomBarLayout.setGravity(Gravity.CENTER_VERTICAL);
@@ -1581,7 +1593,7 @@ public class MainActivity extends AppCompatActivity {
                 canvas.drawText(p.stockName.length() > 14 ? p.stockName.substring(0, 12) + ".." : p.stockName, 250, y + 10, paint);
                 canvas.drawText(pCat.length() > 14 ? pCat.substring(0, 12) + ".." : pCat, 350, y + 10, paint);
                 if (usePrices) {
-                    canvas.drawText(String.format(Locale.getDefault(), "%.2f €", p.price), 455, y + 10, paint);
+                    canvas.drawText(String.format(Locale.getDefault(), "%.2f", p.price), 455, y + 10, paint);
                     totalStockValue += p.price * p.quantity;
                 }
                 totalUnits += p.quantity;
@@ -1594,7 +1606,7 @@ public class MainActivity extends AppCompatActivity {
             y += 14;
             paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
             String summary = "Total unités : " + totalUnits;
-            if (usePrices) summary += String.format(Locale.getDefault(), "   |   Valeur totale : %.2f €", totalStockValue);
+            if (usePrices) summary += String.format(Locale.getDefault(), "   |   Valeur totale : %.2f", totalStockValue);
             canvas.drawText(summary, 40, y, paint);
 
             pdf.finishPage(page);
@@ -1659,7 +1671,7 @@ public class MainActivity extends AppCompatActivity {
                 canvas.drawText(mCat.length() > 14 ? mCat.substring(0, 12) + ".." : mCat, 390, y, paint);
                 canvas.drawText("-" + m.quantity, 475, y, paint);
                 double lineVal = m.quantity * m.unitPrice;
-                canvas.drawText(String.format(Locale.getDefault(), "%.2f €", lineVal), 515, y, paint);
+                canvas.drawText(String.format(Locale.getDefault(), "%.2f", lineVal), 515, y, paint);
 
                 totalOutUnits += m.quantity;
                 totalOutVal += lineVal;
@@ -1668,7 +1680,7 @@ public class MainActivity extends AppCompatActivity {
 
             y += 14;
             paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-            canvas.drawText(String.format(Locale.getDefault(), "Nombre d'articles : %d   |   Montant total des sorties : %.2f €", totalOutUnits, totalOutVal), 40, y, paint);
+            canvas.drawText(String.format(Locale.getDefault(), "Nombre d'articles : %d   |   Montant total des sorties : %.2f", totalOutUnits, totalOutVal), 40, y, paint);
 
             pdf.finishPage(page);
             OutputStream os = getContentResolver().openOutputStream(uri);
@@ -1773,11 +1785,11 @@ public class MainActivity extends AppCompatActivity {
                             y = 50;
                         }
                         canvas.drawText("• " + ri.name, 55, y, paint);
-                        canvas.drawText(String.format(Locale.getDefault(), "%d x %.2f € = %.2f €", ri.quantity, ri.unitPrice, ri.quantity * ri.unitPrice), 360, y, paint);
+                        canvas.drawText(String.format(Locale.getDefault(), "%d x %.2f = %.2f", ri.quantity, ri.unitPrice, ri.quantity * ri.unitPrice), 360, y, paint);
                         y += 15;
                     }
                     paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-                    canvas.drawText(String.format(Locale.getDefault(), "Total Ticket : %.2f €", sr.totalAmount), 360, y, paint);
+                    canvas.drawText(String.format(Locale.getDefault(), "Total Ticket : %.2f", sr.totalAmount), 360, y, paint);
                     grandPeriodTotal += sr.totalAmount;
                     y += 12;
                     canvas.drawLine(40, y, 555, y, linePaint);
@@ -1787,7 +1799,7 @@ public class MainActivity extends AppCompatActivity {
                 y += 10;
                 paint.setTextSize(13f);
                 paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-                canvas.drawText(String.format(Locale.getDefault(), "TOTAL DES TICKETS (%d) : %.2f €", listToExport.size(), grandPeriodTotal), 40, y, paint);
+                canvas.drawText(String.format(Locale.getDefault(), "TOTAL DES TICKETS (%d) : %.2f", listToExport.size(), grandPeriodTotal), 40, y, paint);
             }
 
             pdf.finishPage(page);
@@ -1926,7 +1938,7 @@ public class MainActivity extends AppCompatActivity {
 
                 String sub = sdf.format(new Date(m.timestamp)) + "  •  🏢 " + m.stockName;
                 if (usePrices && m.unitPrice > 0) {
-                    sub += String.format(Locale.getDefault(), "  •  %.2f €", m.quantity * m.unitPrice);
+                    sub += String.format(Locale.getDefault(), "  •  %.2f", m.quantity * m.unitPrice);
                 }
                 TextView dTv = new TextView(this);
                 dTv.setText(sub);
@@ -2146,7 +2158,7 @@ public class MainActivity extends AppCompatActivity {
             String pName = item.name != null ? item.name : item.barcode;
             if (pName.length() > 22) pName = pName.substring(0, 20) + "..";
             sb.append(String.format(Locale.getDefault(), "• %s\n", pName));
-            sb.append(String.format(Locale.getDefault(), "  %d x %.2f €  =  %.2f €\n", item.quantity, item.unitPrice, lineTotal));
+            sb.append(String.format(Locale.getDefault(), "  %d x %.2f  =  %.2f\n", item.quantity, item.unitPrice, lineTotal));
         }
 
         double discountAmt = isPercent ? subtotal * (discountVal / 100.0) : discountVal;
@@ -2156,11 +2168,11 @@ public class MainActivity extends AppCompatActivity {
         sb.append("\n--------------------------------\n");
         sb.append(String.format(Locale.getDefault(), "NOMBRE D'ARTICLES : %d\n", totalQty));
         if (discountAmt > 0.001) {
-            sb.append(String.format(Locale.getDefault(), "SOUS-TOTAL        : %.2f €\n", subtotal));
+            sb.append(String.format(Locale.getDefault(), "SOUS-TOTAL        : %.2f\n", subtotal));
             String discTag = isPercent ? String.format(Locale.getDefault(), "REMISE (%.0f%%)     ", discountVal) : "REMISE            ";
-            sb.append(String.format(Locale.getDefault(), "%s: -%.2f €\n", discTag, discountAmt));
+            sb.append(String.format(Locale.getDefault(), "%s: -%.2f\n", discTag, discountAmt));
         }
-        sb.append(String.format(Locale.getDefault(), "TOTAL À PAYER     : %.2f €\n", finalTotal));
+        sb.append(String.format(Locale.getDefault(), "TOTAL À PAYER     : %.2f\n", finalTotal));
         sb.append("================================\n");
         sb.append("   Merci de votre confiance !\n");
         return sb.toString();
@@ -2242,7 +2254,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnToggleUnit.setOnClickListener(v -> {
             discIsPct[0] = !discIsPct[0];
-            btnToggleUnit.setText(discIsPct[0] ? "%" : "€");
+            btnToggleUnit.setText(discIsPct[0] ? "%" : "-");
             refreshTicketPreview.run();
         });
 
@@ -2434,8 +2446,8 @@ public class MainActivity extends AppCompatActivity {
                 String pName = item.name != null ? item.name : item.barcode;
                 canvas.drawText(pName.length() > 26 ? pName.substring(0, 24) + ".." : pName, 30, y, paint);
                 canvas.drawText(String.valueOf(item.quantity), 235, y, paint);
-                canvas.drawText(String.format(Locale.getDefault(), "%.2f €", item.unitPrice), 275, y, paint);
-                canvas.drawText(String.format(Locale.getDefault(), "%.2f €", lineTotal), 340, y, paint);
+                canvas.drawText(String.format(Locale.getDefault(), "%.2f", item.unitPrice), 275, y, paint);
+                canvas.drawText(String.format(Locale.getDefault(), "%.2f", lineTotal), 340, y, paint);
                 y += 20;
             }
 
@@ -2450,13 +2462,13 @@ public class MainActivity extends AppCompatActivity {
 
             paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
             if (discountAmt > 0.001) {
-                canvas.drawText(String.format(Locale.getDefault(), "Sous-total : %.2f €", subtotal), 240, y, paint);
+                canvas.drawText(String.format(Locale.getDefault(), "Sous-total : %.2f", subtotal), 240, y, paint);
                 y += 16;
-                canvas.drawText(String.format(Locale.getDefault(), "Remise : -%.2f €", discountAmt), 240, y, paint);
+                canvas.drawText(String.format(Locale.getDefault(), "Remise : -%.2f", discountAmt), 240, y, paint);
                 y += 18;
             }
             paint.setTextSize(13f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-            canvas.drawText(String.format(Locale.getDefault(), "TOTAL À PAYER : %.2f €", finalTotal), 210, y, paint);
+            canvas.drawText(String.format(Locale.getDefault(), "TOTAL À PAYER : %.2f", finalTotal), 210, y, paint);
 
             y += 28;
             paint.setTextSize(9f); paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
@@ -2846,7 +2858,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             saveData();
             JSONObject backup = new JSONObject();
-            backup.put("version", 6);
+            backup.put("version", 7);
             backup.put("exportedAt", System.currentTimeMillis());
             backup.put("inventory_json", prefs.getString("inventory_json", "[]"));
             backup.put("stocks_json", prefs.getString("stocks_json", "[]"));
@@ -3290,7 +3302,7 @@ public class MainActivity extends AppCompatActivity {
             int q = 1; double pr = product.price;
             try { q = Integer.parseInt(qtyInput.getText().toString().trim()); } catch (Exception ignored) {}
             try { pr = Double.parseDouble(priceInput.getText().toString().trim().replace(",", ".")); } catch (Exception ignored) {}
-            liveExitTotalTv.setText(tr("exit_total_live") + String.format(Locale.getDefault(), "%.2f €", Math.max(0, q) * Math.max(0, pr)));
+            liveExitTotalTv.setText(tr("exit_total_live") + String.format(Locale.getDefault(), "%.2f", Math.max(0, q) * Math.max(0, pr)));
         };
 
         LinearLayout quickBtns = new LinearLayout(this);
@@ -3470,7 +3482,7 @@ public class MainActivity extends AppCompatActivity {
             nameTv.setTextColor(textColor);
 
             String meta = "📁 " + (p.category != null ? p.category : tr("uncategorized")) + "  •  🏷️ " + p.barcode;
-            if (usePrices && p.price > 0) meta += String.format(Locale.getDefault(), "\n💶 %.2f € / u", p.price);
+            if (usePrices && p.price > 0) meta += String.format(Locale.getDefault(), "\n💶 %.2f / u", p.price);
             TextView codeTv = new TextView(MainActivity.this);
             codeTv.setText(meta);
             codeTv.setTextSize(12);

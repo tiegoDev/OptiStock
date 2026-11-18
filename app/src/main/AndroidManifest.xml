@@ -2,10 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.godev.optistock">
 
+    <!-- Permission personnalisée verrouillée par certificat (seules les apps signées avec optistock.keystore y ont accès) -->
+    <permission
+        android:name="com.godev.optistock.permission.MIGRATE_DATA"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="com.godev.optistock.permission.MIGRATE_DATA" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Permet à la version Pro et à la version Essai de se détecter mutuellement sur Android 11+ -->
     <queries>
         <package android:name="com.godev.optistock.trial" />
         <package android:name="com.godev.optistock.pro" />
@@ -34,10 +39,11 @@
             </intent-filter>
         </activity>
 
-        <!-- Pont automatique de transfert des données et photos de la version Essai vers la version Pro -->
+        <!-- Pont de migration protégé par la permission signature -->
         <provider
             android:name=".MigrationProvider"
             android:authorities="${applicationId}.provider"
-            android:exported="true" />
+            android:exported="true"
+            android:readPermission="com.godev.optistock.permission.MIGRATE_DATA" />
     </application>
 </manifest>

@@ -4,9 +4,12 @@ import android.content.ContentProvider;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
+import android.os.Binder;
+import android.os.Process;
 import android.util.Base64;
 
 import org.json.JSONObject;
@@ -28,10 +31,22 @@ public class MigrationProvider extends ContentProvider {
         Context ctx = getContext();
         if (ctx == null) return cursor;
 
+        // Vérification stricte de la signature numérique entre l'application appelante (Pro) et cette application (Trial)
+        try {
+            PackageManager pm = ctx.getPackageManager();
+            int callingUid = Binder.getCallingUid();
+            int myUid = Process.myUid();
+            if (callingUid != myUid && pm.checkSignatures(myUid, callingUid) != PackageManager.SIGNATURE_MATCH) {
+                return cursor;
+            }
+        } catch (Exception e) {
+            return cursor;
+        }
+
         try {
             SharedPreferences prefs = ctx.getSharedPreferences("OptiStockPrefs", Context.MODE_PRIVATE);
             JSONObject backup = new JSONObject();
-            backup.put("version", 6);
+            backup.put("version", 7);
             backup.put("inventory_json", prefs.getString("inventory_json", "[]"));
             backup.put("stocks_json", prefs.getString("stocks_json", "[]"));
             backup.put("cats_json", prefs.getString("cats_json", "[]"));
